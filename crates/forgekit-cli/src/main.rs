@@ -862,7 +862,12 @@ fn helper_cmd(action: HelperCmd) -> anyhow::Result<()> {
         },
         HelperCmd::Install => {
             helper::install(false)?;
-            println!("Installed. Your saved Keysmith/Umlaut settings apply with: forgekit keysmith on");
+            println!("Installed.");
+            let saved = helper::load();
+            if forgekit_keys::engine::Engine::is_active(&saved) {
+                helper::push(&saved)?;
+                println!("Applied your saved Keysmith/Umlaut settings.");
+            }
         }
         HelperCmd::Uninstall => {
             helper::install(true)?;
