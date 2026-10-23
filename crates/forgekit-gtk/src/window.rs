@@ -372,10 +372,11 @@ impl App {
         let old = self.built.borrow_mut().remove(id);
         if let Some(old) = old {
             let visible = self.stack.visible_child().as_ref() == Some(&old);
+            // Remove first: the new page reuses the old page's name.
+            self.stack.remove(&old);
             if visible {
                 self.show(id);
             }
-            self.stack.remove(&old);
         }
     }
 

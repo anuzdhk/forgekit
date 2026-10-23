@@ -26,6 +26,7 @@ pub const APP_ID: &str = "io.github.anuzdhk.Forgekit";
 const RESOURCES: &str = "/io/github/anuzdhk/Forgekit";
 
 fn main() -> glib::ExitCode {
+    quiet_gtk_baseline_warnings();
     gio::resources_register_include!("forgekit.gresource").expect("bundled resources");
     let app =
         adw::Application::builder().application_id(APP_ID).flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE).build();
@@ -57,6 +58,17 @@ fn main() -> glib::ExitCode {
         0.into()
     });
     app.run()
+}
+
+/// GTK 4.22 warns "GtkImage … reported baselines of minimum -2147483648" for
+/// ordinary icons inside boxes. It's harmless but floods the terminal, so drop
+/// exactly that message and pass every other GTK warning through.
+fn quiet_gtk_baseline_warnings() {
+    glib::log_set_handler(Some("Gtk"), glib::LogLevels::LEVEL_WARNING, false, false, |domain, level, msg| {
+        if !(msg.starts_with("GtkImage") && msg.contains("reported baselines")) {
+            glib::log_default_handler(domain, level, Some(msg));
+        }
+    });
 }
 
 /// Icons, base stylesheet and the saved theme.
