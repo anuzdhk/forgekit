@@ -162,6 +162,21 @@ enum Cmd {
         #[arg(long, global = true)]
         system: bool,
     },
+    /// The privileged input helper that Keysmith and Umlaut need
+    Helper {
+        #[command(subcommand)]
+        action: Option<HelperCmd>,
+    },
+    /// Remap keys and shortcuts (needs the helper)
+    Keysmith {
+        #[command(subcommand)]
+        action: Option<KeyCmd>,
+    },
+    /// Hold a letter, tap Space or arrows to pick an accent (needs the helper)
+    Umlaut {
+        #[command(subcommand)]
+        action: Option<UmlautCmd>,
+    },
     /// Tools from later releases
     #[command(external_subcommand)]
     Other(Vec<String>),
@@ -252,6 +267,47 @@ enum EnvCmd {
     },
     Unset {
         key: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum HelperCmd {
+    Status,
+    /// Install system-wide (asks for your password)
+    Install,
+    Uninstall,
+    /// Start remapping again after Ctrl+Alt+Shift+Esc
+    Resume,
+}
+
+#[derive(Subcommand)]
+enum KeyCmd {
+    List,
+    /// e.g. `add capslock ctrl`, `add ctrl+h backspace`, `add insert none`
+    Add {
+        from: String,
+        to: String,
+    },
+    /// Remove a rule by its number in `list`
+    Remove {
+        number: usize,
+    },
+    On,
+    Off,
+}
+
+#[derive(Subcommand)]
+enum UmlautCmd {
+    Status,
+    On,
+    Off,
+    /// How long to hold a letter before Space/arrows pick accents
+    Delay {
+        ms: u32,
+    },
+    /// Comma-separated: french,german,… or `all`
+    Languages {
+        list: String,
     },
 }
 
@@ -451,6 +507,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::Envy { action, system } => {
             gate("envy", &caps)?;
             envy_cmd(action.unwrap_or(EnvCmd::List), if system { envy::Scope::System } else { envy::Scope::User })
+        }
+        Cmd::Helper { action } => helper_cmd(action.unwrap_or(HelperCmd::Status)),
+        Cmd::Keysmith { action } => {
+            gate("keysmith", &caps)?;
+            keysmith_cmd(action.unwrap_or(KeyCmd::List))
+        }
+        Cmd::Umlaut { action } => {
+            gate("umlaut", &caps)?;
+            umlaut_cmd(action.unwrap_or(UmlautCmd::Status))
         }
         Cmd::Other(args) => {
             let id = &args[0];
@@ -774,4 +839,125 @@ fn teku_cmd(action: TekuCmd) -> anyhow::Result<()> {
         }
         TekuCmd::Uninstall { file } => teku::uninstall_appimage(&file),
     }
+}
+
+fn helper_cmd(action: HelperCmd) -> anyhow::Result<()> {
+    use forgekit_core::helper;
+    match action {
+        HelperCmd::Status => match helper::status() {
+            Some(s) => {
+                println!("forgekit-helper {} is running.", s.version);
+                if s.paused {
+                    println!("Paused by Ctrl+Alt+Shift+Esc. Resume with: forgekit helper resume");
+                } else if s.active {
+                    println!("Remapping: {}", s.keyboards.join(", "));
+                } else {
+                    println!("Idle: no rules or Umlaut switched on, so no keyboard is grabbed.");
+                }
+                if let Some(e) = s.error {
+                    println!("Problem: {e}");
+                }
+            }
+            None => println!("The helper isn't running. Install it with: forgekit helper install"),
+        },
+        HelperCmd::Install => {
+            helper::install(false)?;
+            println!("Installed. Your saved Keysmith/Umlaut settings apply with: forgekit keysmith on");
+        }
+        HelperCmd::Uninstall => {
+            helper::install(true)?;
+            println!("Removed.");
+        }
+        HelperCmd::Resume => {
+            helper::resume()?;
+            println!("Remapping resumed.");
+        }
+    }
+    Ok(())
+}
+
+/// Save settings and apply them if the helper is running.
+fn apply_input(cfg: &forgekit_core::helper::HelperConfig) -> anyhow::Result<()> {
+    use forgekit_core::helper;
+    if helper::status().is_some() {
+        helper::push(cfg)?;
+        println!("Applied.");
+    } else {
+        helper::save(cfg)?;
+        println!("Saved. It applies once the helper is installed (forgekit helper install).");
+    }
+    Ok(())
+}
+
+fn keysmith_cmd(action: KeyCmd) -> anyhow::Result<()> {
+    use forgekit_core::helper;
+    use forgekit_keys::rules::Rule;
+    let mut cfg = helper::load();
+    match action {
+        KeyCmd::List => {
+            println!("Keysmith is {}.", if cfg.keysmith_enabled { "on" } else { "off" });
+            if cfg.rules.is_empty() {
+                println!("No rules yet. Example: forgekit keysmith add capslock ctrl");
+            }
+            for (i, r) in cfg.rules.iter().enumerate() {
+                println!("{:>3}. {r}", i + 1);
+            }
+            return Ok(());
+        }
+        KeyCmd::Add { from, to } => {
+            let r = Rule::parse(&from, &to).map_err(anyhow::Error::msg)?;
+            cfg.rules.retain(|x| x.from != r.from);
+            println!("{r}");
+            cfg.rules.push(r);
+            cfg.keysmith_enabled = true;
+        }
+        KeyCmd::Remove { number } => {
+            anyhow::ensure!((1..=cfg.rules.len()).contains(&number), "no rule {number}");
+            println!("Removed {}", cfg.rules.remove(number - 1));
+        }
+        KeyCmd::On => cfg.keysmith_enabled = true,
+        KeyCmd::Off => cfg.keysmith_enabled = false,
+    }
+    apply_input(&cfg)
+}
+
+fn umlaut_cmd(action: UmlautCmd) -> anyhow::Result<()> {
+    use forgekit_core::helper;
+    use forgekit_keys::umlaut::LANGUAGES;
+    let mut cfg = helper::load();
+    match action {
+        UmlautCmd::Status => {
+            let u = &cfg.umlaut;
+            println!(
+                "Umlaut is {}. Hold a letter {} ms, then tap Space or →/← to cycle accents.",
+                if u.enabled { "on" } else { "off" },
+                u.delay_ms
+            );
+            let langs = if u.languages.is_empty() { "all".to_string() } else { u.languages.join(", ") };
+            println!("Languages: {langs}");
+            for (letter, v) in u.variants() {
+                println!("  {letter}: {}", v.iter().collect::<String>());
+            }
+            return Ok(());
+        }
+        UmlautCmd::On => cfg.umlaut.enabled = true,
+        UmlautCmd::Off => cfg.umlaut.enabled = false,
+        UmlautCmd::Delay { ms } => cfg.umlaut.delay_ms = ms,
+        UmlautCmd::Languages { list } => {
+            let ids: Vec<String> = list.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect();
+            if ids.iter().any(|i| i == "all") {
+                cfg.umlaut.languages.clear();
+            } else {
+                for i in &ids {
+                    anyhow::ensure!(
+                        LANGUAGES.iter().any(|(id, _, _)| id == i),
+                        "unknown language '{i}' (choose from: {})",
+                        LANGUAGES.iter().map(|(id, _, _)| *id).collect::<Vec<_>>().join(", ")
+                    );
+                }
+                cfg.umlaut.languages = ids;
+            }
+        }
+    }
+    apply_input(&cfg)
 }

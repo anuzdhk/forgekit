@@ -1,0 +1,9 @@
+[package]
+name = "forgekit-keys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Key names, Keysmith rules, Umlaut accent tables and the remapping engine (no I/O)"
+
+[dependencies]
+serde.workspace = true

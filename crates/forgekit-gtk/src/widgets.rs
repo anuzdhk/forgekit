@@ -206,12 +206,18 @@ impl Table {
     pub fn add(&self, cells: Vec<gtk::Widget>) -> gtk::ListBoxRow {
         let row_box = hbox(12);
         for (i, c) in cells.into_iter().enumerate() {
-            c.set_valign(gtk::Align::Center);
-            if let Some(&w) = self.widths.get(i) {
-                Self::size(&c, w);
-                self.groups[i].add_widget(&c);
+            // Size a wrapper, so pills and buttons keep their natural width.
+            let slot = gtk::Box::builder().valign(gtk::Align::Center).build();
+            c.set_halign(gtk::Align::Start);
+            if c.is::<gtk::Label>() {
+                c.set_hexpand(true);
             }
-            row_box.append(&c);
+            slot.append(&c);
+            if let Some(&w) = self.widths.get(i) {
+                Self::size(&slot, w);
+                self.groups[i].add_widget(&slot);
+            }
+            row_box.append(&slot);
         }
         let row = gtk::ListBoxRow::builder().child(&row_box).activatable(false).build();
         self.list.append(&row);

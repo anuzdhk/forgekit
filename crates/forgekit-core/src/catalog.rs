@@ -79,7 +79,7 @@ pub struct Tool {
 }
 
 /// The release this build implements.
-pub const CURRENT: &str = "0.2";
+pub const CURRENT: &str = "0.3";
 
 impl Tool {
     /// Not in this build yet.
@@ -197,6 +197,15 @@ fn helper(c: &Capabilities) -> Status {
         Status::Supported
     } else {
         Status::NeedsSetup("Install the Forgekit helper (one-time password prompt)".into())
+    }
+}
+
+fn umlaut(c: &Capabilities) -> Status {
+    match helper(c) {
+        Status::Supported if !c.ibus && c.desktop != Desktop::Gnome => {
+            Status::NeedsSetup("Umlaut types accents with Ctrl+Shift+U, which needs IBus running".into())
+        }
+        s => s,
     }
 }
 
@@ -347,8 +356,17 @@ pub static CATALOG: &[Tool] = &[
         "Safe /etc/hosts editor with backups and per-entry toggles"
     ),
     tool!("envy", "Envy", Universal, System, "variable", "0.2", always, "Edit user and system environment variables"),
-    tool!("keysmith", "Keysmith", Helper, Input, "keyboard", "0.3", helper, "Remap keys, shortcuts and key sequences"),
-    tool!("umlaut", "Umlaut", Helper, Input, "language", "0.3", helper, "Hold a letter to pick an accented version"),
+    tool!(
+        "keysmith",
+        "Keysmith",
+        Helper,
+        Input,
+        "keyboard",
+        "0.3",
+        helper,
+        "Remap keys and shortcuts, or switch keys off"
+    ),
+    tool!("umlaut", "Umlaut", Helper, Input, "language", "0.3", umlaut, "Hold a letter to pick an accented version"),
     tool!(
         "cheatsheet",
         "Cheatsheet",

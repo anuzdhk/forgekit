@@ -72,6 +72,8 @@ pub struct Capabilities {
     /// External programs Forgekit can use, by name.
     pub binaries: BTreeSet<String>,
     pub helper_installed: bool,
+    /// IBus is running (Umlaut types accents with its Ctrl+Shift+U entry).
+    pub ibus: bool,
 }
 
 const BINARIES: &[&str] = &["teku", "tesseract", "pkexec", "wl-copy", "xclip", "xsel"];
@@ -100,6 +102,7 @@ impl Capabilities {
             wayland_globals,
             binaries: BINARIES.iter().filter(|b| which(b).is_some()).map(|b| b.to_string()).collect(),
             helper_installed: HELPER_PATHS.iter().any(|p| Path::new(p).exists()),
+            ibus: process_running("ibus-daemon"),
         }
     }
 
@@ -135,6 +138,14 @@ impl Capabilities {
             _ => None,
         }
     }
+}
+
+fn process_running(name: &str) -> bool {
+    std::fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| std::fs::read_to_string(e.path().join("comm")).is_ok_and(|c| c.trim() == name))
 }
 
 pub fn parse_desktop(raw: &str, globals: &BTreeSet<String>) -> Desktop {

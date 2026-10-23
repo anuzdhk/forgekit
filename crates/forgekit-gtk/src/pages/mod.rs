@@ -2,6 +2,7 @@
 
 mod everyday;
 mod files;
+mod input;
 mod system;
 
 use std::cell::RefCell;
@@ -76,7 +77,9 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
         root.append(&card);
         return w::page(&root).upcast();
     }
-    if let Status::NeedsSetup(reason) = &status {
+    if let Status::NeedsSetup(reason) = &status
+        && tool.tier != forgekit_core::Tier::Helper
+    {
         root.append(&setup_card(tool, reason, app));
     }
 
@@ -96,6 +99,8 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
         "dusk" => system::dusk(app),
         "hostbook" => system::hostbook(app),
         "envy" => system::envy(app),
+        "keysmith" => input::keysmith(app),
+        "umlaut" => input::umlaut(app),
         _ => Vec::new(),
     };
     let content = vbox(18);

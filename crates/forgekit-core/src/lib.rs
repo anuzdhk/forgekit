@@ -3,6 +3,7 @@
 
 pub mod capability;
 pub mod catalog;
+pub mod helper;
 pub mod paths;
 pub mod privileged;
 pub mod settings;
