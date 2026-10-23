@@ -84,6 +84,7 @@ pub fn binary() -> Option<PathBuf> {
 /// Install (or remove) the helper system-wide via `pkexec` (one password prompt).
 pub fn install(remove: bool) -> anyhow::Result<()> {
     let bin = binary().context("forgekit-helper isn't available to install")?;
+    crate::privileged::check_can_elevate()?;
     let st = Command::new("pkexec")
         .arg(&bin)
         .arg(if remove { "--uninstall" } else { "--install" })

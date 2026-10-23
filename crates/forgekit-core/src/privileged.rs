@@ -19,6 +19,7 @@ pub fn replace_file(tool: &str, target: &Path, contents: &str) -> anyhow::Result
     if std::fs::write(target, contents).is_ok() {
         return Ok(backup);
     }
+    check_can_elevate()?;
     let staged = crate::paths::data_dir(tool).join("staged.new");
     std::fs::create_dir_all(staged.parent().unwrap())?;
     std::fs::write(&staged, contents)?;
@@ -34,6 +35,21 @@ pub fn replace_file(tool: &str, target: &Path, contents: &str) -> anyhow::Result
         bail!("Couldn't save {} (cancelled or not permitted)", target.display());
     }
     Ok(backup)
+}
+
+/// pkexec and sudo can't work in a process started with the kernel's
+/// "no new privileges" flag (sandboxes, some IDE and AI-tool terminals).
+/// Say so plainly instead of reporting a vague failure.
+pub fn check_can_elevate() -> anyhow::Result<()> {
+    let flagged = std::fs::read_to_string("/proc/self/status")
+        .is_ok_and(|s| s.lines().any(|l| l.starts_with("NoNewPrivs:") && l.trim_end().ends_with('1')));
+    if flagged {
+        bail!(
+            "this terminal can't ask for administrator rights (it runs in a sandbox with \"no new privileges\"). \
+             Run the same command from a regular terminal, e.g. Ctrl+Alt+T"
+        );
+    }
+    Ok(())
 }
 
 fn backup(tool: &str, target: &Path) -> anyhow::Result<PathBuf> {
