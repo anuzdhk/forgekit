@@ -23,18 +23,36 @@ pub fn replace_file(tool: &str, target: &Path, contents: &str) -> anyhow::Result
     let staged = crate::paths::data_dir(tool).join("staged.new");
     std::fs::create_dir_all(staged.parent().unwrap())?;
     std::fs::write(&staged, contents)?;
-    let status = Command::new("pkexec")
-        .args(["install", "-m", "644", "-o", "root", "-g", "root", "--"])
-        .arg(&staged)
-        .arg(target)
-        .stdin(Stdio::null())
-        .status()
-        .context("running pkexec")?;
+    let mut cmd = Command::new("pkexec");
+    cmd.args(["install", "-m", "644", "-o", "root", "-g", "root", "--"]).arg(&staged).arg(target).stdin(Stdio::null());
+    let r = pkexec(cmd);
     let _ = std::fs::remove_file(&staged);
-    if !status.success() {
-        bail!("Couldn't save {} (cancelled or not permitted)", target.display());
-    }
+    r.with_context(|| format!("Couldn't save {}", target.display()))?;
     Ok(backup)
+}
+
+const SANDBOXED: &str = "this terminal can't ask for administrator rights (it runs inside a sandbox). \
+     Run the same command from a regular terminal, e.g. Ctrl+Alt+T";
+
+/// Run a `pkexec` command, turning its failures into plain explanations.
+/// The password prompt comes from the desktop's polkit agent, so stderr can be captured.
+pub fn pkexec(mut cmd: Command) -> anyhow::Result<()> {
+    let out = cmd.stdout(Stdio::inherit()).stderr(Stdio::piped()).output().context("running pkexec")?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    // pkexec's own exit codes: 126 = dismissed/not authorized, 127 = no agent or other error.
+    if err.contains("must be setuid root") || err.contains("no new privileges") {
+        bail!(SANDBOXED);
+    }
+    match out.status.code() {
+        Some(126) => bail!("cancelled or not permitted"),
+        Some(127) if err.contains("authentication agent") => {
+            bail!("no password dialog is available here; run it from a terminal in your desktop session")
+        }
+        _ => bail!("{}", err.trim().lines().last().unwrap_or("failed")),
+    }
 }
 
 /// pkexec and sudo can't work in a process started with the kernel's
@@ -44,10 +62,7 @@ pub fn check_can_elevate() -> anyhow::Result<()> {
     let flagged = std::fs::read_to_string("/proc/self/status")
         .is_ok_and(|s| s.lines().any(|l| l.starts_with("NoNewPrivs:") && l.trim_end().ends_with('1')));
     if flagged {
-        bail!(
-            "this terminal can't ask for administrator rights (it runs in a sandbox with \"no new privileges\"). \
-             Run the same command from a regular terminal, e.g. Ctrl+Alt+T"
-        );
+        bail!(SANDBOXED);
     }
     Ok(())
 }

@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 pub use forgekit_keys::HelperConfig;
 use serde::Deserialize;
 
@@ -85,14 +85,9 @@ pub fn binary() -> Option<PathBuf> {
 pub fn install(remove: bool) -> anyhow::Result<()> {
     let bin = binary().context("forgekit-helper isn't available to install")?;
     crate::privileged::check_can_elevate()?;
-    let st = Command::new("pkexec")
-        .arg(&bin)
-        .arg(if remove { "--uninstall" } else { "--install" })
-        .status()
-        .context("running pkexec")?;
-    if !st.success() {
-        bail!("cancelled or not permitted");
-    }
+    let mut cmd = Command::new("pkexec");
+    cmd.arg(&bin).arg(if remove { "--uninstall" } else { "--install" });
+    crate::privileged::pkexec(cmd)?;
     if !remove {
         // Give it a moment to claim its bus name, then send the saved settings.
         for _ in 0..20 {
