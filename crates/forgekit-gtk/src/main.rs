@@ -69,10 +69,13 @@ fn main() -> glib::ExitCode {
 /// ordinary icons inside boxes. It's harmless but floods the terminal, so drop
 /// exactly that message and pass every other GTK warning through.
 fn quiet_gtk_baseline_warnings() {
-    glib::log_set_handler(Some("Gtk"), glib::LogLevels::LEVEL_WARNING, false, false, |domain, level, msg| {
-        if !(msg.starts_with("GtkImage") && msg.contains("reported baselines")) {
-            glib::log_default_handler(domain, level, Some(msg));
-        }
+    // GTK 4 logs through GLib's structured writer, so filter there.
+    glib::log_set_writer_func(|level, fields| {
+        let noise = fields.iter().any(|f| {
+            f.key() == "MESSAGE"
+                && f.value_str().is_some_and(|m| m.starts_with("GtkImage") && m.contains("reported baselines"))
+        });
+        if noise { glib::LogWriterOutput::Handled } else { glib::log_writer_default(level, fields) }
     });
 }
 

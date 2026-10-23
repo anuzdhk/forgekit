@@ -72,7 +72,7 @@ pub fn install(app: Option<&str>) -> anyhow::Result<bool> {
     std::fs::write(d.join("metadata.json"), METADATA)?;
     std::fs::write(d.join("extension.js"), EXTENSION)?;
     write_config(app);
-    let _ = Command::new("gnome-extensions").args(["enable", UUID]).status();
+    let _ = Command::new("gnome-extensions").args(["enable", UUID]).output();
     // gnome-extensions can't enable what the Shell hasn't loaded yet; add it
     // to the enabled list so it starts at the next login.
     if state() != State::Active {
@@ -102,7 +102,7 @@ fn enable_on_next_login() {
 }
 
 pub fn remove() -> anyhow::Result<()> {
-    let _ = Command::new("gnome-extensions").args(["disable", UUID]).status();
+    let _ = Command::new("gnome-extensions").args(["disable", UUID]).output();
     std::fs::remove_dir_all(dir())?;
     Ok(())
 }
