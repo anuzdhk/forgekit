@@ -1,0 +1,22 @@
+[package]
+name = "forgekit-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+zbus.workspace = true
+tokio.workspace = true
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "screenshot"] }
+regex = "1"
+image = "0.25"
+libc = "0.2"
+wayland-client = "0.31"
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"

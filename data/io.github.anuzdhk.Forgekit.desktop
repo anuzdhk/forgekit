@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Name=Forgekit
+Comment=All-in-one power tools for Linux
+Exec=forgekit-gtk %U
+Icon=applications-utilities
+Categories=Utility;System;
+Keywords=powertoys;color;picker;rename;hosts;resize;ocr;launcher;
+StartupNotify=true
+Actions=spark;eyedrop;glyphgrab;
+
+[Desktop Action spark]
+Name=Spark launcher
+Exec=forgekit-gtk spark
+
+[Desktop Action eyedrop]
+Name=Pick a color
+Exec=forgekit eyedrop
+
+[Desktop Action glyphgrab]
+Name=Grab text from screen
+Exec=forgekit glyphgrab

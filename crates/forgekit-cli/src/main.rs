@@ -1,0 +1,488 @@
+//! `forgekit` — run any Forgekit tool from the terminal, or open the app.
+
+use std::net::IpAddr;
+use std::path::PathBuf;
+use std::process::ExitCode;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, bail};
+use clap::{Parser, Subcommand};
+use forgekit_core::settings::General;
+use forgekit_core::tools::{self, eyedrop, glyphgrab, hostbook, lockpick, nightowl, relabel, shrinkray, spark, teku};
+use forgekit_core::{CATALOG, Capabilities, Status, catalog};
+
+#[derive(Parser)]
+#[command(name = "forgekit", version, about = "All-in-one power tools for Linux", disable_help_subcommand = true)]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Show what this desktop supports, tool by tool
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Turn a tool on
+    Enable { tool: String },
+    /// Turn a tool off
+    Disable { tool: String },
+    /// Launcher queries: apps, calculator, units, `install <file>`, web search
+    Spark {
+        query: Vec<String>,
+        /// Run the Nth result (1 = first)
+        #[arg(long, short)]
+        run: Option<usize>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pick a color on screen
+    Eyedrop {
+        #[arg(long, short, default_value = "hex")]
+        format: eyedrop::Format,
+        #[arg(long)]
+        no_copy: bool,
+        /// Print recently picked colors instead
+        #[arg(long)]
+        history: bool,
+    },
+    /// Keep the PC awake (until Ctrl+C, for a time, or while a process runs)
+    Nightowl {
+        /// e.g. 30m, 2h, 1h30m (a bare number is minutes)
+        #[arg(long = "for", value_name = "DURATION")]
+        duration: Option<String>,
+        /// Stay awake while this process is running
+        #[arg(long = "while", value_name = "PID")]
+        pid: Option<u32>,
+    },
+    /// Select an area of the screen and copy its text
+    Glyphgrab {
+        /// Tesseract language(s), e.g. eng or eng+deu
+        #[arg(long, short, default_value = "eng")]
+        lang: String,
+        /// OCR this image instead of taking a screenshot
+        #[arg(long)]
+        image: Option<PathBuf>,
+        #[arg(long)]
+        no_copy: bool,
+    },
+    /// Bulk-rename files (preview by default; --apply to rename)
+    Relabel {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        #[arg(long, short, default_value = "")]
+        find: String,
+        #[arg(long, short, default_value = "")]
+        replace: String,
+        /// Treat --find as a regular expression ($1 etc. in --replace)
+        #[arg(long, short = 'x')]
+        regex: bool,
+        #[arg(long, short)]
+        ignore_case: bool,
+        /// Also rename the extension
+        #[arg(long)]
+        include_ext: bool,
+        /// Template: {name}, {ext}, {n}, {n:3}
+        #[arg(long, short)]
+        template: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        start: usize,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Bulk-resize and convert images
+    Shrinkray {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        #[arg(long, short)]
+        width: Option<u32>,
+        #[arg(long = "height", short = 'H')]
+        height: Option<u32>,
+        #[arg(long)]
+        upscale: bool,
+        /// png, jpg, webp, …
+        #[arg(long, short)]
+        format: Option<String>,
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        in_place: bool,
+    },
+    /// View and edit /etc/hosts safely
+    Hostbook {
+        #[command(subcommand)]
+        action: Option<HostCmd>,
+        /// Edit another file instead of /etc/hosts
+        #[arg(long, global = true, default_value = hostbook::HOSTS)]
+        file: PathBuf,
+    },
+    /// Show which processes hold a file or folder
+    Lockpick {
+        path: PathBuf,
+        /// Ask this process to quit
+        #[arg(long)]
+        close: Option<u32>,
+        /// With --close: kill instead of asking
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install app packages with Teku
+    Teku {
+        #[command(subcommand)]
+        action: TekuCmd,
+    },
+    /// Tools from later releases
+    #[command(external_subcommand)]
+    Other(Vec<String>),
+}
+
+#[derive(Subcommand)]
+enum HostCmd {
+    List,
+    Add { ip: IpAddr, names: Vec<String> },
+    On { name: String },
+    Off { name: String },
+    Remove { name: String },
+    Backups,
+}
+
+#[derive(Subcommand)]
+enum TekuCmd {
+    /// What Teku sees, without installing
+    Detect {
+        files: Vec<PathBuf>,
+    },
+    Install {
+        file: PathBuf,
+    },
+    History,
+    /// Remove an AppImage Teku installed
+    Uninstall {
+        file: PathBuf,
+    },
+}
+
+fn main() -> ExitCode {
+    match run(Cli::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("forgekit: {e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Refuse to run tools that are off or can't work here.
+fn gate(id: &str, caps: &Capabilities) -> anyhow::Result<()> {
+    let tool = catalog::find(id).with_context(|| format!("unknown tool '{id}'"))?;
+    if !General::load()?.is_enabled(tool.id) {
+        bail!("{} is turned off (forgekit enable {})", tool.name, tool.id);
+    }
+    match tool.status(caps) {
+        Status::Supported => Ok(()),
+        Status::NeedsSetup(r) => {
+            eprintln!("{}: {r}", tool.name);
+            Ok(())
+        }
+        Status::Unsupported(r) => bail!("{} isn't available here: {r}", tool.name),
+    }
+}
+
+fn run(cli: Cli) -> anyhow::Result<()> {
+    let caps = Capabilities::detect();
+    let Some(cmd) = cli.cmd else {
+        return open_app(&caps);
+    };
+    match cmd {
+        Cmd::Status { json } => status(&caps, json),
+        Cmd::Enable { tool } | Cmd::Disable { tool } if catalog::find(&tool).is_none() => {
+            bail!("unknown tool '{tool}'")
+        }
+        Cmd::Enable { tool } => toggle(&tool, true),
+        Cmd::Disable { tool } => toggle(&tool, false),
+        Cmd::Spark { query, run, json } => {
+            gate("spark", &caps)?;
+            let items = spark::query(&query.join(" "), &spark::load_apps());
+            if let Some(n) = run {
+                let item = items.get(n.wrapping_sub(1)).with_context(|| format!("no result #{n}"))?;
+                return spark::run(&item.action);
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items)?);
+            } else {
+                for (i, it) in items.iter().enumerate() {
+                    println!("{:>2}. {}  — {}", i + 1, it.title, it.subtitle);
+                }
+            }
+            Ok(())
+        }
+        Cmd::Eyedrop { format, no_copy, history } => {
+            if history {
+                for c in eyedrop::history() {
+                    println!("{}", c.format(format));
+                }
+                return Ok(());
+            }
+            gate("eyedrop", &caps)?;
+            let c = block_on(eyedrop::pick())?;
+            eyedrop::remember(c)?;
+            let text = c.format(format);
+            println!("{text}");
+            copy(&caps, &text, no_copy)
+        }
+        Cmd::Nightowl { duration, pid } => {
+            gate("nightowl", &caps)?;
+            nightowl_cmd(duration, pid)
+        }
+        Cmd::Glyphgrab { lang, image, no_copy } => {
+            gate("glyphgrab", &caps)?;
+            let path = match image {
+                Some(p) => p,
+                None => block_on(glyphgrab::capture())?,
+            };
+            let text = glyphgrab::ocr(&path, &lang)?;
+            if text.is_empty() {
+                bail!("No text found");
+            }
+            println!("{text}");
+            copy(&caps, &text, no_copy)
+        }
+        Cmd::Relabel { files, find, replace, regex, ignore_case, include_ext, template, start, apply } => {
+            gate("relabel", &caps)?;
+            let opts =
+                relabel::Options { find, replace, regex, ignore_case, keep_extension: !include_ext, template, start };
+            let plan = relabel::plan(&files, &opts)?;
+            for r in &plan {
+                let from = r.from.file_name().unwrap_or_default().to_string_lossy();
+                let to = r.to.file_name().unwrap_or_default().to_string_lossy();
+                match &r.problem {
+                    Some(p) => println!("  ✗ {from}  →  {to}   ({p})"),
+                    None if r.changes() => println!("    {from}  →  {to}"),
+                    None => println!("    {from}  (unchanged)"),
+                }
+            }
+            if apply {
+                println!("Renamed {} file(s).", relabel::apply(&plan)?);
+            } else {
+                println!("Preview only. Add --apply to rename.");
+            }
+            Ok(())
+        }
+        Cmd::Shrinkray { files, width, height, upscale, format, out, in_place } => {
+            gate("shrinkray", &caps)?;
+            let opts = shrinkray::Options { width, height, upscale, format, out_dir: out, in_place };
+            let mut failed = 0;
+            for f in &files {
+                match shrinkray::process(f, &opts) {
+                    Ok(o) => println!("{} → {}", f.display(), o.display()),
+                    Err(e) => {
+                        failed += 1;
+                        eprintln!("{}: {e:#}", f.display());
+                    }
+                }
+            }
+            if failed > 0 {
+                bail!("{failed} of {} image(s) failed", files.len());
+            }
+            Ok(())
+        }
+        Cmd::Hostbook { action, file } => {
+            gate("hostbook", &caps)?;
+            hostbook_cmd(action.unwrap_or(HostCmd::List), &file)
+        }
+        Cmd::Lockpick { path, close, force, json } => {
+            gate("lockpick", &caps)?;
+            if let Some(pid) = close {
+                lockpick::close(pid, force).with_context(|| format!("closing process {pid}"))?;
+                println!("Sent {} to {pid}.", if force { "SIGKILL" } else { "SIGTERM" });
+                return Ok(());
+            }
+            let found = lockpick::holders(&path).with_context(|| format!("reading {}", path.display()))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&found)?);
+            } else if found.is_empty() {
+                println!("Nothing (that you can see) is using {}.", path.display());
+            } else {
+                for h in &found {
+                    println!(
+                        "{:>7}  {:<16} {:<6} {}",
+                        h.pid,
+                        h.name,
+                        format!("{:?}", h.hold).to_lowercase(),
+                        h.path.display()
+                    );
+                }
+                println!("Close one with: forgekit lockpick {} --close PID", path.display());
+            }
+            Ok(())
+        }
+        Cmd::Teku { action } => {
+            gate("teku", &caps)?;
+            teku_cmd(action)
+        }
+        Cmd::Other(args) => {
+            let id = &args[0];
+            match catalog::find(id) {
+                Some(t) => {
+                    bail!("{} isn't available yet: {}", t.name, t.status(&caps).reason().unwrap_or("not in this build"))
+                }
+                None => bail!("unknown command '{id}' (try forgekit --help)"),
+            }
+        }
+    }
+}
+
+fn block_on<T>(f: impl std::future::Future<Output = anyhow::Result<T>>) -> anyhow::Result<T> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(f)
+}
+
+fn copy(caps: &Capabilities, text: &str, skip: bool) -> anyhow::Result<()> {
+    if !skip && !tools::copy_to_clipboard(caps, text)? {
+        eprintln!("(not copied: install wl-clipboard or xclip to copy automatically)");
+    }
+    Ok(())
+}
+
+fn open_app(caps: &Capabilities) -> anyhow::Result<()> {
+    let sibling = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("forgekit-gtk")));
+    let app = sibling.filter(|p| p.exists()).or_else(|| forgekit_core::paths::which("forgekit-gtk"));
+    match app {
+        Some(app) => {
+            use std::os::unix::process::CommandExt;
+            Err(std::process::Command::new(app).exec().into())
+        }
+        None => {
+            eprintln!("The Forgekit app isn't installed; showing tool status instead.\n");
+            status(caps, false)
+        }
+    }
+}
+
+fn status(caps: &Capabilities, json: bool) -> anyhow::Result<()> {
+    let general = General::load()?;
+    if json {
+        let tools: Vec<_> = CATALOG
+            .iter()
+            .map(|t| serde_json::json!({ "tool": t, "enabled": general.is_enabled(t.id), "status": t.status(caps) }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "system": caps, "tools": tools }))?);
+        return Ok(());
+    }
+    println!(
+        "Session: {:?} · Desktop: {} · Helper: {}",
+        caps.session,
+        if caps.desktop_raw.is_empty() { "unknown" } else { &caps.desktop_raw },
+        if caps.helper_installed { "installed" } else { "not installed" }
+    );
+    let mut tier = None;
+    for t in CATALOG {
+        if tier != Some(t.tier) {
+            tier = Some(t.tier);
+            println!("\n{}", t.tier.title());
+        }
+        let s = t.status(caps);
+        let mark = match (&s, general.is_enabled(t.id)) {
+            (_, false) => "off",
+            (Status::Supported, _) => " ✓ ",
+            (Status::NeedsSetup(_), _) => " ! ",
+            (Status::Unsupported(_), _) => " – ",
+        };
+        let reason = s.reason().map(|r| format!("  ({r})")).unwrap_or_default();
+        println!("  [{mark}] {:<18} {}{reason}", t.name, t.summary);
+    }
+    Ok(())
+}
+
+fn toggle(id: &str, on: bool) -> anyhow::Result<()> {
+    let tool = catalog::find(id).unwrap();
+    let mut g = General::load()?;
+    g.set_enabled(tool.id, on);
+    g.save()?;
+    println!("{} is now {}.", tool.name, if on { "on" } else { "off" });
+    Ok(())
+}
+
+fn nightowl_cmd(duration: Option<String>, pid: Option<u32>) -> anyhow::Result<()> {
+    let until = duration.as_deref().map(nightowl::parse_duration).transpose()?.map(|d| Instant::now() + d);
+    if let Some(pid) = pid {
+        anyhow::ensure!(nightowl::process_alive(pid), "no process {pid}");
+    }
+    let reason = match (pid, &duration) {
+        (Some(p), _) => format!("Waiting for process {p}"),
+        (None, Some(d)) => format!("Keeping awake for {d}"),
+        (None, None) => "Keeping awake".to_string(),
+    };
+    let inhibitor = nightowl::Inhibitor::acquire(&reason)?;
+    println!("Nightowl: {} — {reason}. Ctrl+C to stop.", inhibitor.describe());
+    loop {
+        if until.is_some_and(|t| Instant::now() >= t) {
+            println!("Time's up.");
+            break;
+        }
+        if pid.is_some_and(|p| !nightowl::process_alive(p)) {
+            println!("Process exited.");
+            break;
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Ok(())
+}
+
+fn hostbook_cmd(action: HostCmd, file: &std::path::Path) -> anyhow::Result<()> {
+    let mut hosts = hostbook::Hosts::load(file)?;
+    let changed = match action {
+        HostCmd::List => {
+            for e in hosts.entries() {
+                let c = e.comment.as_deref().map(|c| format!("  # {c}")).unwrap_or_default();
+                println!("[{}] {:<24} {}{c}", if e.enabled { "on " } else { "off" }, e.ip, e.names.join(" "));
+            }
+            return Ok(());
+        }
+        HostCmd::Backups => {
+            for b in hostbook::backups() {
+                println!("{}", b.display());
+            }
+            return Ok(());
+        }
+        HostCmd::Add { ip, names } => {
+            hosts.add(ip, names)?;
+            1
+        }
+        HostCmd::On { name } => hosts.set_enabled(&name, true),
+        HostCmd::Off { name } => hosts.set_enabled(&name, false),
+        HostCmd::Remove { name } => hosts.remove(&name),
+    };
+    if changed == 0 {
+        println!("Nothing to change.");
+        return Ok(());
+    }
+    let backup = hosts.save(file)?;
+    println!("Saved {} (backup: {}).", file.display(), backup.display());
+    Ok(())
+}
+
+fn teku_cmd(action: TekuCmd) -> anyhow::Result<()> {
+    match action {
+        TekuCmd::Detect { files } => {
+            for d in teku::detect(&files)? {
+                match d.route {
+                    teku::Route::Install { how } => println!("{}: {} — installs via {how}", d.file.display(), d.kind),
+                    teku::Route::Error { title, detail } => println!("{}: {title}. {detail}", d.file.display()),
+                }
+            }
+            Ok(())
+        }
+        TekuCmd::Install { file } => teku::install(&file, |l| println!("{l}")),
+        TekuCmd::History => {
+            for h in teku::history() {
+                println!("{}  {:<6} {:<9} {}", h.when, if h.ok { "ok" } else { "failed" }, h.kind, h.file.display());
+            }
+            Ok(())
+        }
+        TekuCmd::Uninstall { file } => teku::uninstall_appimage(&file),
+    }
+}

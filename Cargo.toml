@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/forgekit-core", "crates/forgekit-cli", "crates/forgekitd", "crates/forgekit-gtk"]
+# The GTK app needs libgtk-4-dev + libadwaita-1-dev; build it explicitly with `cargo build -p forgekit-gtk`.
+default-members = ["crates/forgekit-core", "crates/forgekit-cli", "crates/forgekitd"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/anuzdhk/forgekit"
+
+[workspace.dependencies]
+forgekit-core = { path = "crates/forgekit-core" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+zbus = { version = "5", default-features = false, features = ["tokio", "blocking-api"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "process", "io-util"] }
