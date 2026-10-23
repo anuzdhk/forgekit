@@ -12,21 +12,48 @@ use gtk::{gdk, glib};
 use crate::widgets::{self as w, hbox, vbox};
 use crate::window::App;
 
+/// What a shortcut is for: its settings key, a name for the dialog title,
+/// and the action it runs.
+#[derive(Clone)]
+pub struct Spec {
+    pub key: String,
+    pub title: String,
+    pub label: String,
+    pub command: String,
+}
+
+impl Spec {
+    pub fn tool(tool: &Tool) -> Self {
+        let a = shortcuts::action(tool);
+        Spec { key: tool.id.to_string(), title: tool.name.to_string(), label: a.label, command: a.command }
+    }
+
+    /// "Move the focused window into Mosaic zone `n`" (1-based).
+    pub fn zone(n: usize) -> Self {
+        let a = shortcuts::zone_action(n);
+        Spec { key: shortcuts::zone_key(n), title: format!("zone {n}"), label: a.label, command: a.command }
+    }
+}
+
 /// The row under a tool's description. Rebuilds itself after changes.
 pub fn row(tool: &'static Tool, app: &Rc<App>) -> gtk::Box {
+    row_for(Spec::tool(tool), app)
+}
+
+pub fn row_for(spec: Spec, app: &Rc<App>) -> gtk::Box {
     let holder = hbox(0);
-    fill(&holder, tool, app);
+    fill(&holder, Rc::new(spec), app);
     holder
 }
 
-fn fill(holder: &gtk::Box, tool: &'static Tool, app: &Rc<App>) {
+fn fill(holder: &gtk::Box, spec: Rc<Spec>, app: &Rc<App>) {
     while let Some(c) = holder.first_child() {
         holder.remove(&c);
     }
     let b = hbox(8);
     b.set_valign(gtk::Align::Center);
     b.append(&w::icon("keyboard", 16));
-    let action = shortcuts::action(tool);
+    let action = spec.clone();
     let Some(backend) = shortcuts::backend(app.caps.desktop) else {
         // No supported backend: show the command to bind by hand.
         b.append(&w::label("Shortcut: bind this command in your desktop's keyboard settings", &["dim", "caption"]));
@@ -35,22 +62,22 @@ fn fill(holder: &gtk::Box, tool: &'static Tool, app: &Rc<App>) {
         holder.append(&b);
         return;
     };
-    match shortcuts::get(backend, tool.id) {
+    match shortcuts::get(backend, &spec.key) {
         Some(accel) => {
             b.append(&accel_label(&accel));
             b.append(&w::label(&action.label, &["dim", "caption"]));
             let change = w::button("Change", None, "flat");
             let remove = w::icon_button("x", "Remove shortcut");
             {
-                let (h, a) = (holder.clone(), app.clone());
-                change.connect_clicked(move |btn| record(btn, tool, backend, &a, &h));
+                let (h, a, sp) = (holder.clone(), app.clone(), spec.clone());
+                change.connect_clicked(move |btn| record(btn, sp.clone(), backend, &a, &h));
             }
             {
-                let (h, a) = (holder.clone(), app.clone());
-                remove.connect_clicked(move |_| match shortcuts::remove(backend, tool.id) {
+                let (h, a, sp) = (holder.clone(), app.clone(), spec.clone());
+                remove.connect_clicked(move |_| match shortcuts::remove(backend, &sp.key) {
                     Ok(()) => {
                         a.toast("Shortcut removed");
-                        fill(&h, tool, &a);
+                        fill(&h, sp.clone(), &a);
                     }
                     Err(e) => a.toast(&format!("{e:#}")),
                 });
@@ -62,8 +89,8 @@ fn fill(holder: &gtk::Box, tool: &'static Tool, app: &Rc<App>) {
             let add = w::button("Add keyboard shortcut", None, "flat");
             add.add_css_class("fk-link");
             add.set_tooltip_text(Some(&action.label));
-            let (h, a) = (holder.clone(), app.clone());
-            add.connect_clicked(move |btn| record(btn, tool, backend, &a, &h));
+            let (h, a, sp) = (holder.clone(), app.clone(), spec.clone());
+            add.connect_clicked(move |btn| record(btn, sp.clone(), backend, &a, &h));
             b.append(&add);
         }
     }
@@ -82,8 +109,8 @@ pub fn accel_label(accel: &str) -> gtk::Box {
     b
 }
 
-fn record(anchor: &gtk::Button, tool: &'static Tool, backend: Backend, app: &Rc<App>, holder: &gtk::Box) {
-    let dialog = adw::AlertDialog::new(Some(&format!("Shortcut for {}", tool.name)), None);
+fn record(anchor: &gtk::Button, spec: Rc<Spec>, backend: Backend, app: &Rc<App>, holder: &gtk::Box) {
+    let dialog = adw::AlertDialog::new(Some(&format!("Shortcut for {}", spec.title)), None);
     let body = vbox(12);
     body.set_size_request(320, -1);
     let prompt = w::label("Press the keys you want to use…", &["dim"]);
@@ -105,6 +132,7 @@ fn record(anchor: &gtk::Button, tool: &'static Tool, backend: Backend, app: &Rc<
     dialog.set_close_response("cancel");
 
     let chosen: Rc<RefCell<Option<String>>> = Rc::default();
+    let key = spec.key.clone();
     let keys = gtk::EventControllerKey::new();
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     {
@@ -147,7 +175,7 @@ fn record(anchor: &gtk::Button, tool: &'static Tool, backend: Backend, app: &Rc<
                 *chosen.borrow_mut() = None;
                 return glib::Propagation::Stop;
             }
-            let clashes = shortcuts::conflicts(backend, tool.id, &accel);
+            let clashes = shortcuts::conflicts(backend, &key, &accel);
             if clashes.is_empty() {
                 note.set_label("Free to use.");
                 note.remove_css_class("warning");
@@ -174,11 +202,10 @@ fn record(anchor: &gtk::Button, tool: &'static Tool, backend: Backend, app: &Rc<
             return;
         }
         let Some(accel) = chosen.borrow().clone() else { return };
-        let action = shortcuts::action(tool);
-        match shortcuts::set(backend, tool.id, &action.label, &action.command, &accel) {
+        match shortcuts::set(backend, &spec.key, &spec.label, &spec.command, &accel) {
             Ok(()) => {
-                a.toast(&format!("Shortcut saved: {}", action.label));
-                fill(&h, tool, &a);
+                a.toast(&format!("Shortcut saved: {}", spec.label));
+                fill(&h, spec.clone(), &a);
             }
             Err(e) => a.toast(&format!("{e:#}")),
         }

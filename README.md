@@ -2,7 +2,7 @@
 
 All-in-one power tools for Linux. One app with a toggle per tool, every tool also on the command line, and honest detection: tools your desktop can't support are greyed out with a one-line reason.
 
-Status: **v0.3 (Input)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog and roadmap.
+Status: **v0.4 (Windows)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog and roadmap.
 
 ![Home](docs/screenshots/home.jpg)
 
@@ -29,6 +29,8 @@ Status: **v0.3 (Input)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog 
 | Hostbook | `forgekit hostbook [list\|add IP NAME…\|on\|off\|remove NAME\|backups]` | Edits `/etc/hosts`, keeps untouched lines byte-for-byte, backs up before saving, writes through `pkexec` |
 | Envy | `forgekit envy [list\|set KEY VALUE\|unset KEY] [--system]` | Your session's variables (`~/.config/environment.d`) or `/etc/environment` |
 | Keysmith | `forgekit keysmith [list\|add capslock ctrl\|add ctrl+h backspace\|add insert none\|remove N\|on\|off]` | Remap keys (also while held, e.g. CapsLock → Ctrl), turn shortcuts into others, or switch keys off |
+| Mosaic | `forgekit mosaic [status\|layouts\|layout thirds\|grid 3 2\|gap 8\|snap N]` | Window zones: Shift-drag a window onto a zone (GNOME), or a shortcut per zone (GNOME, KDE) |
+| Pin | `forgekit pin` | Keep the focused window above others, with a colored border on GNOME |
 | Umlaut | `forgekit umlaut [status\|on\|off\|delay MS\|languages french,german]` | Hold a letter, tap Space or →/← to cycle é è ê ë…, release to keep. Shift for capitals |
 
 `forgekit status` shows what this desktop supports. `forgekit shortcut set eyedrop super+shift+c` binds a global shortcut (GNOME and Cinnamon; also from each tool's page in the app). `forgekit update` checks GitHub for a newer release. `forgekit enable|disable <tool>` toggles tools. Running `forgekit` with no arguments opens the app.
@@ -42,6 +44,12 @@ Status: **v0.3 (Input)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog 
 | GNOME (Wayland) | XWayland's clipboard bridge, through the X11 backend |
 
 Content marked by password managers is never stored. Private mode pauses recording. History lives in `~/.local/share/forgekit/clipstack/history.db` (folder mode 0700) and is never synced.
+
+### Window tools on GNOME and KDE
+
+- **GNOME:** the bundled companion extension (installed from the Mosaic, Pin or DropShelf page; log out and in once) serves `org.forgekit.Shell1` (`PinToggle`, `Snap`) on the session bus, draws zones while you Shift-drag a window, and borders pinned windows. It only reacts to drags and window moves, and talks to nothing but the session bus.
+- **KDE Plasma 6:** nothing to install. Each action runs a one-shot KWin script over D-Bus. Use Plasma's own Shift-drag tiling for dragging; Mosaic adds per-zone shortcuts.
+- Other desktops say so plainly on the tool page.
 
 ### The input helper (Keysmith, Umlaut)
 

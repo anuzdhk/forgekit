@@ -43,6 +43,7 @@ pub fn action(tool: &crate::Tool) -> Action {
         "glyphgrab" => ("Grab text from the screen".into(), "forgekit", vec!["glyphgrab", "--notify"]),
         "nightowl" => ("Turn keep-awake on or off".into(), "forgekit", vec!["nightowl", "--toggle"]),
         "dusk" => ("Switch light/dark".into(), "forgekit", vec!["dusk", "toggle"]),
+        "pin" => ("Pin the focused window on top".into(), "forgekit", vec!["pin"]),
         id => (format!("Open {}", tool.name), "forgekit-gtk", vec![id]),
     };
     let mut command = shell_quote(&bin_path(bin).to_string_lossy());
@@ -51,6 +52,18 @@ pub fn action(tool: &crate::Tool) -> Action {
         command.push_str(a);
     }
     Action { label, command }
+}
+
+/// Shortcut key for "move the focused window into Mosaic zone `n`" (1-based).
+pub fn zone_key(n: usize) -> String {
+    format!("mosaic-zone-{n}")
+}
+
+pub fn zone_action(n: usize) -> Action {
+    Action {
+        label: format!("Move window to zone {n}"),
+        command: format!("{} mosaic snap {n}", shell_quote(&bin_path("forgekit").to_string_lossy())),
+    }
 }
 
 /// Prefer the binary next to the running program (a build folder or an

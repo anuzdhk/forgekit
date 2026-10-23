@@ -74,6 +74,8 @@ pub struct Capabilities {
     pub helper_installed: bool,
     /// IBus is running (Umlaut types accents with its Ctrl+Shift+U entry).
     pub ibus: bool,
+    /// Forgekit's GNOME Shell extension is running (window tools on GNOME).
+    pub forgekit_shell: bool,
 }
 
 const BINARIES: &[&str] = &["teku", "tesseract", "pkexec", "wl-copy", "xclip", "xsel"];
@@ -103,6 +105,7 @@ impl Capabilities {
             binaries: BINARIES.iter().filter(|b| which(b).is_some()).map(|b| b.to_string()).collect(),
             helper_installed: HELPER_PATHS.iter().any(|p| Path::new(p).exists()),
             ibus: process_running("ibus-daemon"),
+            forgekit_shell: crate::desktop::shell_running(),
         }
     }
 

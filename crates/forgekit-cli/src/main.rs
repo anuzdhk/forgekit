@@ -171,6 +171,13 @@ enum Cmd {
         #[arg(long, global = true)]
         system: bool,
     },
+    /// Window zones: pick a layout or move the focused window into a zone
+    Mosaic {
+        #[command(subcommand)]
+        action: Option<MosaicCmd>,
+    },
+    /// Keep the focused window on top of others (toggle)
+    Pin,
     /// Check GitHub for a newer Forgekit release
     Update,
     /// Global keyboard shortcuts for tools (saved in your desktop's settings)
@@ -284,6 +291,22 @@ enum EnvCmd {
     Unset {
         key: String,
     },
+}
+
+#[derive(Subcommand)]
+enum MosaicCmd {
+    /// The current layout and its zones
+    Status,
+    /// Available layouts
+    Layouts,
+    /// Use a preset layout, e.g. `layout thirds`
+    Layout { id: String },
+    /// Use a custom grid, e.g. `grid 3 2`
+    Grid { columns: u8, rows: u8 },
+    /// Pixels between zones
+    Gap { pixels: u32 },
+    /// Move the focused window into zone N (1 = first)
+    Snap { zone: usize },
 }
 
 #[derive(Subcommand)]
@@ -549,6 +572,21 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::Envy { action, system } => {
             gate("envy", &caps)?;
             envy_cmd(action.unwrap_or(EnvCmd::List), if system { envy::Scope::System } else { envy::Scope::User })
+        }
+        Cmd::Mosaic { action } => {
+            gate("mosaic", &caps)?;
+            mosaic_cmd(action.unwrap_or(MosaicCmd::Status), &caps)
+        }
+        Cmd::Pin => {
+            gate("pin", &caps)?;
+            let b = forgekit_core::desktop::backend(&caps).context("no window backend for this desktop")?;
+            match forgekit_core::desktop::pin_toggle(b)? {
+                Some(true) => println!("Pinned on top."),
+                Some(false) => println!("Unpinned."),
+                // KWin scripts can't report back; say what happened anyway.
+                None => tools::notify("Pin", "Toggled always-on-top for the focused window"),
+            }
+            Ok(())
         }
         Cmd::Update => {
             use forgekit_core::update::{self, Outcome};
@@ -1092,5 +1130,62 @@ fn shortcut_cmd(action: ShortcutCmd, caps: &Capabilities) -> anyhow::Result<()> 
             println!("Removed.");
         }
     }
+    Ok(())
+}
+
+fn mosaic_cmd(action: MosaicCmd, caps: &Capabilities) -> anyhow::Result<()> {
+    use forgekit_core::desktop;
+    use forgekit_core::tools::mosaic::{PRESETS, Settings};
+    let mut s = Settings::load()?;
+    match action {
+        MosaicCmd::Status => {
+            let name = PRESETS.iter().find(|(id, _, _)| *id == s.layout).map(|(_, n, _)| n.to_string());
+            let name = name.unwrap_or_else(|| format!("{} × {} grid", s.columns, s.rows));
+            println!("Layout: {name}, {} px gaps{}", s.gap, if s.shift_drag { ", Shift-drag on" } else { "" });
+            for (i, z) in s.zones().iter().enumerate() {
+                println!(
+                    "  zone {}: {:.0}% {:.0}% · {:.0}% × {:.0}%",
+                    i + 1,
+                    z.x * 100.0,
+                    z.y * 100.0,
+                    z.w * 100.0,
+                    z.h * 100.0
+                );
+            }
+            return Ok(());
+        }
+        MosaicCmd::Layouts => {
+            for (id, name, zones) in PRESETS {
+                println!("{id:<10} {name} ({} zones)", zones.len());
+            }
+            println!("{:<10} Custom columns × rows (forgekit mosaic grid 3 2)", "grid");
+            return Ok(());
+        }
+        MosaicCmd::Snap { zone } => {
+            anyhow::ensure!(zone >= 1, "zones start at 1");
+            let b = desktop::backend(caps).context("no window backend for this desktop")?;
+            return desktop::snap(b, zone - 1);
+        }
+        MosaicCmd::Layout { id } => {
+            anyhow::ensure!(
+                id == "grid" || PRESETS.iter().any(|(p, _, _)| *p == id),
+                "unknown layout '{id}' (see forgekit mosaic layouts)"
+            );
+            s.layout = id;
+        }
+        MosaicCmd::Grid { columns, rows } => {
+            anyhow::ensure!((1..=6).contains(&columns) && (1..=4).contains(&rows), "1–6 columns and 1–4 rows");
+            s.layout = "grid".into();
+            s.columns = columns;
+            s.rows = rows;
+        }
+        MosaicCmd::Gap { pixels } => {
+            anyhow::ensure!(pixels <= 64, "gaps up to 64 px");
+            s.gap = pixels;
+        }
+    }
+    s.save()?;
+    desktop::write_config(None);
+    println!("Saved. {} zones.", s.zones().len());
     Ok(())
 }

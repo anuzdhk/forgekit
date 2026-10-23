@@ -5,7 +5,6 @@
 //! `forgekit-gtk --shelf [FILE…]` opens DropShelf. One instance handles all of
 //! them, so a second `--shelf FILE` adds to the shelf that's already open.
 
-mod desktop_ext;
 mod glance;
 mod home;
 mod pages;
@@ -86,9 +85,14 @@ fn setup_display() {
     gtk::style_context_add_provider_for_display(&display, &base, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     apply_theme(&theme::Appearance::load());
     // Keep the desktop extension pointed at this copy of the app.
-    if desktop_ext::state() != desktop_ext::State::NotInstalled {
-        desktop_ext::write_config();
+    if forgekit_core::desktop::state() != forgekit_core::desktop::State::NotInstalled {
+        forgekit_core::desktop::write_config(Some(&app_path()));
     }
+}
+
+/// This program's path, recorded for the GNOME extension and shortcuts.
+pub fn app_path() -> String {
+    std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default()
 }
 
 thread_local! {

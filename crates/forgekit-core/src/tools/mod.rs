@@ -6,6 +6,7 @@ pub mod glance;
 pub mod glyphgrab;
 pub mod hostbook;
 pub mod lockpick;
+pub mod mosaic;
 pub mod nightowl;
 pub mod relabel;
 pub mod shelf;

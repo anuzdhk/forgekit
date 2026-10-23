@@ -434,8 +434,8 @@ pub fn shelf(app: &Rc<App>) -> Cards {
 
 /// "Pop up while dragging": the GNOME Shell extension and its settings.
 fn popup_card(app: &Rc<App>) -> gtk::Widget {
-    use crate::desktop_ext::{self as ext, State};
     use forgekit_core::capability::{Desktop, Session};
+    use forgekit_core::desktop as ext;
 
     let gnome = app.caps.desktop == Desktop::Gnome && app.caps.session == Session::Wayland;
     let (card, body) = w::card(
@@ -450,62 +450,8 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
         return card.upcast();
     }
 
-    let status = adw::ActionRow::new();
-    let state = ext::state();
-    let (icon, tone, title, sub) = match state {
-        State::Active => ("circle-check", "ok", "Ready", "The Forgekit GNOME extension is running."),
-        State::NeedsRelogin => (
-            "alert-triangle",
-            "warn",
-            "Log out and back in once",
-            "GNOME loads newly installed extensions at the next login.",
-        ),
-        State::Disabled => ("eye-off", "off", "Extension turned off", "Turn it on to let the shelf pop up."),
-        State::Error => ("alert-triangle", "err", "GNOME couldn't load the extension", "Try reinstalling it."),
-        State::NotInstalled => (
-            "shield-check",
-            "",
-            "Needs a small GNOME extension",
-            "GNOME doesn't let apps see drags or place their windows. The extension only watches for drags starting and positions the shelf.",
-        ),
-    };
-    status.set_title(title);
-    status.set_subtitle(sub);
-    status.add_prefix(&w::icon_tile(icon, false, tone));
-    let action = match state {
-        State::NotInstalled | State::Error => Some(w::button(
-            if state == State::Error { "Reinstall" } else { "Install" },
-            Some("download"),
-            "suggested-action",
-        )),
-        State::Disabled => Some(w::button("Turn on", Some("player-play"), "suggested-action")),
-        _ => None,
-    };
-    if let Some(b) = action {
-        let a = app.clone();
-        b.connect_clicked(move |_| {
-            match ext::install() {
-                Ok(true) => a.toast("Ready: start dragging some files"),
-                Ok(false) => a.toast("Installed. Log out and back in once to finish."),
-                Err(e) => a.toast(&e),
-            }
-            a.rebuild_page("shelf");
-        });
-        status.add_suffix(&b);
-    } else if state != State::NotInstalled {
-        let rm = w::icon_button("trash", "Remove the extension");
-        let a = app.clone();
-        rm.connect_clicked(move |_| {
-            match ext::remove() {
-                Ok(()) => a.toast("Extension removed"),
-                Err(e) => a.toast(&e),
-            }
-            a.rebuild_page("shelf");
-        });
-        status.add_suffix(&rm);
-    }
     let rows = boxed_list();
-    rows.append(&status);
+    rows.append(&super::extension_row(app, "shelf"));
 
     let s = shelf::Settings::load().unwrap_or_default();
     let auto = adw::SwitchRow::builder().title("Show when I start dragging").active(s.auto_show).build();
@@ -528,7 +474,7 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
             st.corner = shelf::CORNERS[corner.selected() as usize].0.to_string();
             files.set_sensitive(st.auto_show);
             match st.save() {
-                Ok(()) => ext::write_config(),
+                Ok(()) => ext::write_config(None),
                 Err(e) => a.toast(&format!("{e:#}")),
             }
         })

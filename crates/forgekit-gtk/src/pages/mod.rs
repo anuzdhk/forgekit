@@ -4,6 +4,7 @@ mod everyday;
 mod files;
 mod input;
 mod system;
+mod windows;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -82,6 +83,7 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
     }
     if let Status::NeedsSetup(reason) = &status
         && tool.tier != forgekit_core::Tier::Helper
+        && !matches!(tool.id, "mosaic" | "pin")
     {
         root.append(&setup_card(tool, reason, app));
     }
@@ -103,6 +105,8 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
         "hostbook" => system::hostbook(app),
         "envy" => system::envy(app),
         "keysmith" => input::keysmith(app),
+        "mosaic" => windows::mosaic(app),
+        "pin" => windows::pin(app),
         "umlaut" => input::umlaut(app),
         _ => Vec::new(),
     };
@@ -226,4 +230,71 @@ pub fn files_row(files: Rc<RefCell<Vec<PathBuf>>>, title: &str, changed: impl Fn
 
 pub fn boxed_list() -> gtk::ListBox {
     gtk::ListBox::builder().css_classes(["boxed-list"]).selection_mode(gtk::SelectionMode::None).build()
+}
+
+/// Status of the Forgekit GNOME extension with the one button that fixes it
+/// (install, turn on, reinstall). `page` is rebuilt after a change.
+pub fn extension_row(app: &Rc<App>, page: &'static str) -> adw::ActionRow {
+    use forgekit_core::desktop::{self as ext, State};
+    let row = adw::ActionRow::new();
+    let state = ext::state();
+    let (icon, tone, title, sub) = match state {
+        State::Active => ("circle-check", "ok", "Ready", "The Forgekit GNOME extension is running."),
+        State::NeedsRelogin => (
+            "alert-triangle",
+            "warn",
+            "Log out and back in once",
+            "GNOME loads newly installed extensions at the next login.",
+        ),
+        State::Outdated => (
+            "refresh",
+            "warn",
+            "Update the GNOME extension",
+            "This Forgekit has a newer extension. Update it, then log out and back in once.",
+        ),
+        State::Disabled => {
+            ("eye-off", "off", "Extension turned off", "Turn it on in Forgekit or GNOME's Extensions app.")
+        }
+        State::Error => ("alert-triangle", "err", "GNOME couldn't load the extension", "Try reinstalling it."),
+        State::NotInstalled => (
+            "shield-check",
+            "",
+            "Needs a small GNOME extension",
+            "GNOME doesn't let apps watch drags or move other windows. Forgekit's extension does only that, and sends nothing anywhere.",
+        ),
+    };
+    row.set_title(title);
+    row.set_subtitle(sub);
+    row.add_prefix(&w::icon_tile(icon, false, tone));
+    let action = match state {
+        State::NotInstalled => Some(("Install", "download")),
+        State::Error | State::Outdated => Some(("Update", "refresh")),
+        State::Disabled => Some(("Turn on", "player-play")),
+        _ => None,
+    };
+    if let Some((label, icon)) = action {
+        let b = w::button(label, Some(icon), "suggested-action");
+        let a = app.clone();
+        b.connect_clicked(move |_| {
+            match ext::install(Some(&crate::app_path())) {
+                Ok(true) => a.toast("The GNOME extension is ready"),
+                Ok(false) => a.toast("Installed. Log out and back in once to finish."),
+                Err(e) => a.toast(&format!("{e:#}")),
+            }
+            a.rebuild_page(page);
+        });
+        row.add_suffix(&b);
+    } else if state != State::NotInstalled {
+        let rm = w::icon_button("trash", "Remove the extension");
+        let a = app.clone();
+        rm.connect_clicked(move |_| {
+            match ext::remove() {
+                Ok(()) => a.toast("Extension removed"),
+                Err(e) => a.toast(&format!("{e:#}")),
+            }
+            a.rebuild_page(page);
+        });
+        row.add_suffix(&rm);
+    }
+    row
 }

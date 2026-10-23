@@ -79,7 +79,7 @@ pub struct Tool {
 }
 
 /// The release this build implements.
-pub const CURRENT: &str = "0.3";
+pub const CURRENT: &str = "0.4";
 
 impl Tool {
     /// Not in this build yet.
@@ -210,11 +210,13 @@ fn umlaut(c: &Capabilities) -> Status {
 }
 
 fn window_backend(c: &Capabilities) -> Status {
-    match (c.session, c.desktop) {
-        (Session::X11, _) => Status::Supported,
-        (_, Desktop::Gnome) => Status::NeedsSetup("Enable the Forgekit GNOME Shell extension".into()),
-        (_, Desktop::Kde | Desktop::Hyprland | Desktop::Sway) => Status::Supported,
-        _ => Status::Unsupported("No window-management backend for this desktop yet".into()),
+    match c.desktop {
+        Desktop::Gnome if c.forgekit_shell => Status::Supported,
+        Desktop::Gnome => Status::NeedsSetup(
+            "Needs the Forgekit GNOME extension: install it from the Mosaic, Pin or DropShelf page in Forgekit, then log out and back in once".into(),
+        ),
+        Desktop::Kde => Status::Supported,
+        _ => Status::Unsupported("Works on GNOME and KDE Plasma so far".into()),
     }
 }
 
@@ -469,7 +471,7 @@ mod tests {
     #[test]
     fn future_tools_report_their_release() {
         let caps = Capabilities::detect();
-        let s = find("mosaic").unwrap().status(&caps);
-        assert_eq!(s, Status::Unsupported("Coming in v0.4".into()));
+        let s = find("stage").unwrap().status(&caps);
+        assert_eq!(s, Status::Unsupported("Coming in v0.5".into()));
     }
 }
