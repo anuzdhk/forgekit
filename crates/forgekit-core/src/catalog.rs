@@ -24,12 +24,53 @@ impl Tier {
     }
 }
 
+/// Task-based grouping used by the app's sidebar. Tiers describe what a tool
+/// needs from the system; categories describe what people use it for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Category {
+    Everyday,
+    Files,
+    System,
+    Input,
+    Windows,
+    Presenting,
+    Extras,
+}
+
+impl Category {
+    pub const ALL: [Category; 7] = [
+        Category::Everyday,
+        Category::Files,
+        Category::System,
+        Category::Input,
+        Category::Windows,
+        Category::Presenting,
+        Category::Extras,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Category::Everyday => "Everyday",
+            Category::Files => "Files",
+            Category::System => "System",
+            Category::Input => "Keyboard",
+            Category::Windows => "Windows",
+            Category::Presenting => "Presenting",
+            Category::Extras => "Maintenance",
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Tool {
     /// CLI name: `forgekit <id>`.
     pub id: &'static str,
     pub name: &'static str,
     pub tier: Tier,
+    pub category: Category,
+    /// Tabler icon name (the app ships these as `tabler-<icon>-symbolic`).
+    pub icon: &'static str,
     pub summary: &'static str,
     /// Release that ships the tool. Tools from later releases report as unsupported.
     pub since: &'static str,
@@ -38,11 +79,16 @@ pub struct Tool {
 }
 
 /// The release this build implements.
-pub const CURRENT: &str = "0.1";
+pub const CURRENT: &str = "0.2";
 
 impl Tool {
+    /// Not in this build yet.
+    pub fn is_planned(&self) -> bool {
+        version_key(self.since) > version_key(CURRENT)
+    }
+
     pub fn status(&self, caps: &Capabilities) -> Status {
-        if version_key(self.since) > version_key(CURRENT) {
+        if self.is_planned() {
             return Status::Unsupported(format!("Coming in v{}", self.since));
         }
         (self.check)(caps)
@@ -127,12 +173,22 @@ fn teku(c: &Capabilities) -> Status {
 }
 
 fn clipstack(c: &Capabilities) -> Status {
-    if c.has_data_control() {
+    // GNOME has no data-control protocol, but its XWayland clipboard bridge
+    // lets the X11 backend see and set the Wayland clipboard.
+    if c.has_data_control() || std::env::var_os("DISPLAY").is_some() {
         Status::Supported
     } else if c.desktop == Desktop::Gnome {
-        Status::NeedsSetup("Enable the Forgekit GNOME Shell extension".into())
+        Status::NeedsSetup("Clipstack uses XWayland on GNOME; it isn't running in this session".into())
     } else {
         Status::Unsupported("This compositor has no clipboard data-control protocol".into())
+    }
+}
+
+fn dusk(c: &Capabilities) -> Status {
+    match c.desktop {
+        Desktop::Gnome | Desktop::Cinnamon | Desktop::Kde | Desktop::Xfce => Status::Supported,
+        _ if crate::paths::which("gsettings").is_some() => Status::Supported,
+        _ => Status::Unsupported("Don't know how to switch this desktop's theme".into()),
     }
 }
 
@@ -172,8 +228,17 @@ fn roam(c: &Capabilities) -> Status {
 }
 
 macro_rules! tool {
-    ($id:literal, $name:literal, $tier:ident, $since:literal, $check:expr, $summary:literal) => {
-        Tool { id: $id, name: $name, tier: Tier::$tier, since: $since, check: $check, summary: $summary }
+    ($id:literal, $name:literal, $tier:ident, $cat:ident, $icon:literal, $since:literal, $check:expr, $summary:literal) => {
+        Tool {
+            id: $id,
+            name: $name,
+            tier: Tier::$tier,
+            category: Category::$cat,
+            icon: $icon,
+            since: $since,
+            check: $check,
+            summary: $summary,
+        }
     };
 }
 
@@ -182,44 +247,192 @@ pub static CATALOG: &[Tool] = &[
         "spark",
         "Spark",
         Universal,
+        Everyday,
+        "bolt",
         "0.1",
         needs_graphical,
         "Launcher and command bar: apps, calculator, web search"
     ),
-    tool!("eyedrop", "Eyedrop", Universal, "0.1", eyedrop, "Pick any color on screen and copy it as HEX/RGB/HSL"),
-    tool!("nightowl", "Nightowl", Universal, "0.1", nightowl, "Keep the PC awake, for a while or while a process runs"),
-    tool!("glyphgrab", "Glyphgrab", Universal, "0.1", glyphgrab, "Copy the text in any area of the screen (OCR)"),
-    tool!("relabel", "Relabel", Universal, "0.1", always, "Bulk-rename files with find/replace, regex and numbering"),
-    tool!("shrinkray", "Shrinkray", Universal, "0.1", always, "Bulk-resize and convert images"),
-    tool!("glance", "Glance", Universal, "0.2", needs_graphical, "Quick preview of any file with a key press"),
+    tool!(
+        "clipstack",
+        "Clipstack",
+        Universal,
+        Everyday,
+        "clipboard-list",
+        "0.2",
+        clipstack,
+        "Clipboard history for text and images"
+    ),
+    tool!(
+        "shelf",
+        "DropShelf",
+        Universal,
+        Everyday,
+        "stack-2",
+        "0.2",
+        needs_graphical,
+        "Hold files while you move between apps"
+    ),
+    tool!(
+        "eyedrop",
+        "Eyedrop",
+        Universal,
+        Everyday,
+        "color-picker",
+        "0.1",
+        eyedrop,
+        "Pick any color on screen and copy it as HEX/RGB/HSL"
+    ),
+    tool!(
+        "glyphgrab",
+        "Glyphgrab",
+        Universal,
+        Everyday,
+        "text-scan-2",
+        "0.1",
+        glyphgrab,
+        "Copy the text in any area of the screen (OCR)"
+    ),
+    tool!("glance", "Glance", Universal, Everyday, "eye", "0.2", needs_graphical, "Quick preview of any file"),
+    tool!(
+        "relabel",
+        "Relabel",
+        Universal,
+        Files,
+        "forms",
+        "0.1",
+        always,
+        "Bulk-rename files with find/replace, regex and numbering"
+    ),
+    tool!("shrinkray", "Shrinkray", Universal, Files, "photo-scan", "0.1", always, "Bulk-resize and convert images"),
+    tool!(
+        "lockpick",
+        "Lockpick",
+        Universal,
+        Files,
+        "lock-open",
+        "0.1",
+        lockpick,
+        "Show which process is holding a file, and close it"
+    ),
+    tool!(
+        "teku",
+        "Teku",
+        Universal,
+        Files,
+        "package",
+        "0.1",
+        teku,
+        "Install .deb, .rpm, .AppImage and .flatpakref files"
+    ),
+    tool!(
+        "nightowl",
+        "Nightowl",
+        Universal,
+        System,
+        "moon-stars",
+        "0.1",
+        nightowl,
+        "Keep the PC awake, for a while or while a process runs"
+    ),
+    tool!("dusk", "Dusk", Universal, System, "sun-moon", "0.2", dusk, "Automatic light/dark theme by time or sunset"),
     tool!(
         "hostbook",
         "Hostbook",
         Universal,
+        System,
+        "world-www",
         "0.1",
         hostbook,
         "Safe /etc/hosts editor with backups and per-entry toggles"
     ),
-    tool!("envy", "Envy", Universal, "0.2", always, "Edit user and system environment variables"),
-    tool!("lockpick", "Lockpick", Universal, "0.1", lockpick, "Show which process is holding a file, and close it"),
-    tool!("caliper", "Caliper", Universal, "0.5", screenshot_portal, "Measure pixel distances on screen"),
-    tool!("dusk", "Dusk", Universal, "0.2", needs_graphical, "Automatic light/dark theme by time or sunset"),
-    tool!("clipstack", "Clipstack", Universal, "0.2", clipstack, "Clipboard history for text and images"),
-    tool!("shelf", "DropShelf", Universal, "0.2", needs_graphical, "Hold files while you move between apps"),
-    tool!("teku", "Teku", Universal, "0.1", teku, "Install .deb, .rpm, .AppImage and .flatpakref files"),
-    tool!("keysmith", "Keysmith", Helper, "0.3", helper, "Remap keys, shortcuts and key sequences"),
-    tool!("umlaut", "Umlaut", Helper, "0.3", helper, "Hold a letter to pick an accented version"),
-    tool!("mosaic", "Mosaic", Desktop, "0.4", window_backend, "Custom window zones and layouts"),
-    tool!("pin", "Pin", Desktop, "0.4", window_backend, "Keep any window always on top"),
-    tool!("scenes", "Scenes", Desktop, "0.6", window_backend, "Launch and arrange a set of apps in one click"),
-    tool!("cheatsheet", "Cheatsheet", Desktop, "0.5", overlay, "Overlay that shows keyboard shortcuts"),
-    tool!("stage", "Stage", Desktop, "0.5", overlay, "Zoom, draw on screen and present"),
-    tool!("beacon", "Beacon", Desktop, "0.5", overlay, "Find and highlight the mouse cursor"),
-    tool!("roam", "Roam", Desktop, "0.6", roam, "Share one mouse and keyboard across PCs"),
-    tool!("sweep", "Sweep", LinuxExtra, "0.6", always, "Clean package caches, old runtimes, logs and thumbnails"),
-    tool!("bootpilot", "Bootpilot", LinuxExtra, "0.6", always, "Manage startup apps and systemd user units"),
-    tool!("servicedeck", "Servicedeck", LinuxExtra, "0.6", always, "Start, stop and inspect systemd services"),
-    tool!("settings-explorer", "Settings Explorer", LinuxExtra, "0.6", always, "Browse dconf/gsettings and KDE config"),
+    tool!("envy", "Envy", Universal, System, "variable", "0.2", always, "Edit user and system environment variables"),
+    tool!("keysmith", "Keysmith", Helper, Input, "keyboard", "0.3", helper, "Remap keys, shortcuts and key sequences"),
+    tool!("umlaut", "Umlaut", Helper, Input, "language", "0.3", helper, "Hold a letter to pick an accented version"),
+    tool!(
+        "cheatsheet",
+        "Cheatsheet",
+        Desktop,
+        Input,
+        "keyboard-show",
+        "0.5",
+        overlay,
+        "Overlay that shows keyboard shortcuts"
+    ),
+    tool!(
+        "mosaic",
+        "Mosaic",
+        Desktop,
+        Windows,
+        "layout-grid",
+        "0.4",
+        window_backend,
+        "Custom window zones and layouts"
+    ),
+    tool!("pin", "Pin", Desktop, Windows, "pinned", "0.4", window_backend, "Keep any window always on top"),
+    tool!(
+        "scenes",
+        "Scenes",
+        Desktop,
+        Windows,
+        "layout-board-split",
+        "0.6",
+        window_backend,
+        "Launch and arrange a set of apps in one click"
+    ),
+    tool!("roam", "Roam", Desktop, Windows, "devices", "0.6", roam, "Share one mouse and keyboard across PCs"),
+    tool!("stage", "Stage", Desktop, Presenting, "presentation", "0.5", overlay, "Zoom, draw on screen and present"),
+    tool!("beacon", "Beacon", Desktop, Presenting, "pointer", "0.5", overlay, "Find and highlight the mouse cursor"),
+    tool!(
+        "caliper",
+        "Caliper",
+        Universal,
+        Presenting,
+        "ruler-measure",
+        "0.5",
+        screenshot_portal,
+        "Measure pixel distances on screen"
+    ),
+    tool!(
+        "sweep",
+        "Sweep",
+        LinuxExtra,
+        Extras,
+        "vacuum-cleaner",
+        "0.6",
+        always,
+        "Clean package caches, old runtimes, logs and thumbnails"
+    ),
+    tool!(
+        "bootpilot",
+        "Bootpilot",
+        LinuxExtra,
+        Extras,
+        "rocket",
+        "0.6",
+        always,
+        "Manage startup apps and systemd user units"
+    ),
+    tool!(
+        "servicedeck",
+        "Servicedeck",
+        LinuxExtra,
+        Extras,
+        "server-cog",
+        "0.6",
+        always,
+        "Start, stop and inspect systemd services"
+    ),
+    tool!(
+        "settings-explorer",
+        "Settings Explorer",
+        LinuxExtra,
+        Extras,
+        "adjustments-horizontal",
+        "0.6",
+        always,
+        "Browse dconf/gsettings and KDE config"
+    ),
 ];
 
 #[cfg(test)]

@@ -1,6 +1,9 @@
 //! `forgekitd` — the per-user daemon. Owns long-lived state (Nightowl's
-//! inhibitor today; shortcuts, Clipstack and Dusk later) and serves it on the
-//! session bus as `org.forgekit.Daemon1`.
+//! inhibitor, Clipstack's clipboard watcher, Dusk's schedule) and serves it on
+//! the session bus as `org.forgekit.Daemon1` and `org.forgekit.Clipstack1`.
+
+mod clipstack;
+mod dusk;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -118,8 +121,20 @@ async fn detect() -> fdo::Result<Capabilities> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _conn = zbus::connection::Builder::session()?.name(NAME)?.serve_at(PATH, Daemon::default())?.build().await?;
+    let conn = zbus::connection::Builder::session()?.serve_at(PATH, Daemon::default())?.build().await?;
+    let clip = clipstack::Clipstack::new(conn.clone());
+    conn.object_server().at(clipstack::PATH, clip.clone()).await?;
+    // Claim the name last so callers never see a half-registered daemon.
+    conn.request_name(NAME).await?;
     eprintln!("forgekitd {} on {NAME}", env!("CARGO_PKG_VERSION"));
-    tokio::signal::ctrl_c().await?;
+
+    clip.sync().await;
+    tokio::spawn(dusk::run());
+
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term.recv() => {}
+    }
     Ok(())
 }

@@ -6,7 +6,6 @@
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
 use serde::Serialize;
@@ -119,48 +118,14 @@ impl Hosts {
         s
     }
 
-    /// Back up `target`, then replace it. Uses `pkexec` when we can't write it ourselves.
-    pub fn save(&self, target: &Path) -> anyhow::Result<PathBuf> {
-        let backup = backup(target)?;
-        let tmp = crate::paths::data_dir("hostbook").join("hosts.new");
-        std::fs::write(&tmp, self.render())?;
-        let direct = std::fs::OpenOptions::new().write(true).open(target).is_ok();
-        let status = if direct {
-            Command::new("cp").arg("--").arg(&tmp).arg(target).status()?
-        } else {
-            Command::new("pkexec")
-                .args(["install", "-m", "644", "-o", "root", "-g", "root", "--"])
-                .arg(&tmp)
-                .arg(target)
-                .stdin(Stdio::null())
-                .status()
-                .context("running pkexec")?
-        };
-        if !status.success() {
-            bail!("Couldn't save {} (cancelled or not permitted)", target.display());
-        }
-        Ok(backup)
+    /// Back up `target`, then replace it (through `pkexec` when needed).
+    pub fn save(&self, target: &Path) -> anyhow::Result<Option<PathBuf>> {
+        crate::privileged::replace_file("hostbook", target, &self.render())
     }
 }
 
-fn backup(target: &Path) -> anyhow::Result<PathBuf> {
-    let dir = crate::paths::data_dir("hostbook").join("backups");
-    std::fs::create_dir_all(&dir)?;
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-    let dest = dir.join(format!("hosts.{stamp}"));
-    std::fs::copy(target, &dest).with_context(|| format!("backing up {}", target.display()))?;
-    Ok(dest)
-}
-
 pub fn backups() -> Vec<PathBuf> {
-    let mut v: Vec<_> = std::fs::read_dir(crate::paths::data_dir("hostbook").join("backups"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .collect();
-    v.sort();
-    v
+    crate::privileged::backups("hostbook")
 }
 
 fn parse_line(raw: &str) -> Line {
@@ -228,7 +193,7 @@ mod tests {
         std::fs::write(&p, SAMPLE).unwrap();
         let mut h = Hosts::load(&p).unwrap();
         h.set_enabled("localhost", false);
-        let b = h.save(&p).unwrap();
+        let b = h.save(&p).unwrap().unwrap();
         assert_eq!(std::fs::read_to_string(&b).unwrap(), SAMPLE);
         assert!(std::fs::read_to_string(&p).unwrap().starts_with("#off 127.0.0.1"));
         std::fs::remove_file(b).unwrap();

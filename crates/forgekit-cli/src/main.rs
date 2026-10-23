@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use forgekit_core::settings::General;
-use forgekit_core::tools::{self, eyedrop, glyphgrab, hostbook, lockpick, nightowl, relabel, shrinkray, spark, teku};
+use forgekit_core::tools::{
+    self, clipstack, dusk, envy, eyedrop, glyphgrab, hostbook, lockpick, nightowl, relabel, shrinkray, spark, teku,
+};
 use forgekit_core::{CATALOG, Capabilities, Status, catalog};
 
 #[derive(Parser)]
@@ -135,6 +137,31 @@ enum Cmd {
         #[command(subcommand)]
         action: TekuCmd,
     },
+    /// Clipboard history
+    Clipstack {
+        #[command(subcommand)]
+        action: Option<ClipCmd>,
+    },
+    /// Hold files while you move between apps (opens the shelf)
+    Shelf {
+        /// Files to put on the shelf
+        files: Vec<PathBuf>,
+    },
+    /// Preview a file
+    Glance { file: PathBuf },
+    /// Light/dark theme: switch now or set a schedule
+    Dusk {
+        #[command(subcommand)]
+        action: Option<DuskCmd>,
+    },
+    /// Environment variables for your session (or the whole system with --system)
+    Envy {
+        #[command(subcommand)]
+        action: Option<EnvCmd>,
+        /// Edit /etc/environment instead of your user file
+        #[arg(long, global = true)]
+        system: bool,
+    },
     /// Tools from later releases
     #[command(external_subcommand)]
     Other(Vec<String>),
@@ -148,6 +175,84 @@ enum HostCmd {
     Off { name: String },
     Remove { name: String },
     Backups,
+}
+
+#[derive(Subcommand)]
+enum ClipCmd {
+    /// Recent items (pinned first)
+    List {
+        #[arg(default_value = "")]
+        search: String,
+        #[arg(long, short, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Put an item back on the clipboard
+    Copy {
+        id: i64,
+    },
+    /// Print an item's text (or write an image to stdout)
+    Show {
+        id: i64,
+    },
+    Pin {
+        id: i64,
+    },
+    Unpin {
+        id: i64,
+    },
+    Delete {
+        id: i64,
+    },
+    /// Remove everything except pinned items
+    Clear,
+    /// Pause or resume recording
+    Private {
+        state: OnOff,
+    },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum OnOff {
+    On,
+    Off,
+}
+
+#[derive(Subcommand)]
+enum DuskCmd {
+    /// Current mode and schedule
+    Status,
+    Light,
+    Dark,
+    Toggle,
+    /// Switch at fixed times, e.g. `dusk times 07:00 19:30`
+    Times {
+        light: String,
+        dark: String,
+    },
+    /// Switch at sunrise and sunset for a location
+    Sun {
+        #[arg(allow_hyphen_values = true)]
+        latitude: f64,
+        #[arg(allow_hyphen_values = true)]
+        longitude: f64,
+    },
+    /// Stop switching automatically
+    Manual,
+}
+
+#[derive(Subcommand)]
+enum EnvCmd {
+    /// Every variable and the file it comes from
+    List,
+    Set {
+        key: String,
+        value: String,
+    },
+    Unset {
+        key: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -324,6 +429,29 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             gate("teku", &caps)?;
             teku_cmd(action)
         }
+        Cmd::Clipstack { action } => {
+            gate("clipstack", &caps)?;
+            clipstack_cmd(action.unwrap_or(ClipCmd::List { search: String::new(), limit: 20, json: false }))
+        }
+        Cmd::Shelf { files } => {
+            gate("shelf", &caps)?;
+            let mut args = vec!["--shelf".into()];
+            args.extend(files.iter().map(|f| f.canonicalize().unwrap_or_else(|_| f.clone()).into_os_string()));
+            exec_app(args)
+        }
+        Cmd::Glance { file } => {
+            gate("glance", &caps)?;
+            anyhow::ensure!(file.exists(), "{} doesn't exist", file.display());
+            exec_app(vec!["--glance".into(), file.canonicalize()?.into_os_string()])
+        }
+        Cmd::Dusk { action } => {
+            gate("dusk", &caps)?;
+            dusk_cmd(action.unwrap_or(DuskCmd::Status), &caps)
+        }
+        Cmd::Envy { action, system } => {
+            gate("envy", &caps)?;
+            envy_cmd(action.unwrap_or(EnvCmd::List), if system { envy::Scope::System } else { envy::Scope::User })
+        }
         Cmd::Other(args) => {
             let id = &args[0];
             match catalog::find(id) {
@@ -347,19 +475,177 @@ fn copy(caps: &Capabilities, text: &str, skip: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn open_app(caps: &Capabilities) -> anyhow::Result<()> {
+fn app_path() -> Option<PathBuf> {
     let sibling = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("forgekit-gtk")));
-    let app = sibling.filter(|p| p.exists()).or_else(|| forgekit_core::paths::which("forgekit-gtk"));
-    match app {
-        Some(app) => {
-            use std::os::unix::process::CommandExt;
-            Err(std::process::Command::new(app).exec().into())
+    sibling.filter(|p| p.exists()).or_else(|| forgekit_core::paths::which("forgekit-gtk"))
+}
+
+fn open_app(caps: &Capabilities) -> anyhow::Result<()> {
+    if app_path().is_some() {
+        return exec_app(Vec::new());
+    }
+    eprintln!("The Forgekit app isn't installed; showing tool status instead.\n");
+    status(caps, false)
+}
+
+/// Replace this process with the GTK app.
+fn exec_app(args: Vec<std::ffi::OsString>) -> anyhow::Result<()> {
+    use std::os::unix::process::CommandExt;
+    let app = app_path().context("this needs the Forgekit app (forgekit-gtk), which isn't installed")?;
+    Err(std::process::Command::new(app).args(args).exec().into())
+}
+
+fn clipstack_cmd(action: ClipCmd) -> anyhow::Result<()> {
+    use clipstack::store::Store;
+    let store = Store::open_default()?;
+    match action {
+        ClipCmd::List { search, limit, json } => {
+            let items = store.list(&search, limit)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items)?);
+                return Ok(());
+            }
+            if items.is_empty() {
+                println!("Clipboard history is empty.");
+            }
+            for i in items {
+                let line: String =
+                    i.preview.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(80).collect();
+                println!("{:>5} {} {line}", i.id, if i.pinned { "📌" } else { "  " });
+            }
+            Ok(())
         }
-        None => {
-            eprintln!("The Forgekit app isn't installed; showing tool status instead.\n");
-            status(caps, false)
+        ClipCmd::Copy { id } => {
+            let conn = zbus::blocking::Connection::session()?;
+            conn.call_method(
+                Some("org.forgekit.Daemon"),
+                "/org/forgekit/Clipstack",
+                Some("org.forgekit.Clipstack1"),
+                "Copy",
+                &id,
+            )
+            .context("asking forgekitd to set the clipboard (is it running?)")?;
+            println!("Copied item {id}.");
+            Ok(())
+        }
+        ClipCmd::Show { id } => {
+            use std::io::Write;
+            let clip = store.get(id)?.with_context(|| format!("no item {id}"))?;
+            std::io::stdout().write_all(&clip.data)?;
+            Ok(())
+        }
+        ClipCmd::Pin { id } => {
+            anyhow::ensure!(store.set_pinned(id, true)?, "no item {id}");
+            Ok(())
+        }
+        ClipCmd::Unpin { id } => {
+            anyhow::ensure!(store.set_pinned(id, false)?, "no item {id}");
+            Ok(())
+        }
+        ClipCmd::Delete { id } => {
+            anyhow::ensure!(store.delete(id)?, "no item {id}");
+            Ok(())
+        }
+        ClipCmd::Clear => {
+            println!("Removed {} item(s); pinned items kept.", store.clear()?);
+            Ok(())
+        }
+        ClipCmd::Private { state } => {
+            let mut s = clipstack::Settings::load()?;
+            s.private = matches!(state, OnOff::On);
+            s.save()?;
+            println!("Private mode {}.", if s.private { "on: nothing is recorded" } else { "off" });
+            Ok(())
         }
     }
+}
+
+fn dusk_cmd(action: DuskCmd, caps: &Capabilities) -> anyhow::Result<()> {
+    let mut settings = dusk::Settings::load()?;
+    let set_mode = |m: dusk::Mode| -> anyhow::Result<()> {
+        dusk::apply(m, caps.desktop, &settings)?;
+        println!("Switched to {m:?}.");
+        Ok(())
+    };
+    match action {
+        DuskCmd::Status => {
+            let now = chrono::Local::now();
+            println!("Now: {:?}", dusk::current(caps.desktop)?);
+            match &settings.schedule {
+                dusk::Schedule::Manual => println!("Schedule: manual"),
+                dusk::Schedule::Times { light, dark } => println!("Schedule: light at {light}, dark at {dark}"),
+                dusk::Schedule::Sun { latitude, longitude } => {
+                    println!("Schedule: sunrise/sunset at {latitude:.3}, {longitude:.3}");
+                    if let Some((rise, set)) = dusk::sun_times(now, *latitude, *longitude) {
+                        println!("Today: sunrise {}, sunset {}", rise.format("%H:%M"), set.format("%H:%M"));
+                    }
+                }
+            }
+            if let Some(next) = dusk::next_change(&settings.schedule, now) {
+                println!("Next switch: {}", next.format("%a %H:%M"));
+            }
+            Ok(())
+        }
+        DuskCmd::Light => set_mode(dusk::Mode::Light),
+        DuskCmd::Dark => set_mode(dusk::Mode::Dark),
+        DuskCmd::Toggle => set_mode(dusk::current(caps.desktop)?.flip()),
+        DuskCmd::Times { light, dark } => {
+            dusk::parse_time(&light)?;
+            dusk::parse_time(&dark)?;
+            settings.schedule = dusk::Schedule::Times { light, dark };
+            settings.save()?;
+            println!("Saved. forgekitd switches automatically while it runs.");
+            Ok(())
+        }
+        DuskCmd::Sun { latitude, longitude } => {
+            anyhow::ensure!(
+                (-90.0..=90.0).contains(&latitude) && (-180.0..=180.0).contains(&longitude),
+                "latitude is -90..90 and longitude -180..180"
+            );
+            settings.schedule = dusk::Schedule::Sun { latitude, longitude };
+            settings.save()?;
+            println!("Saved. forgekitd switches automatically while it runs.");
+            Ok(())
+        }
+        DuskCmd::Manual => {
+            settings.schedule = dusk::Schedule::Manual;
+            settings.save()?;
+            println!("Automatic switching is off.");
+            Ok(())
+        }
+    }
+}
+
+fn envy_cmd(action: EnvCmd, scope: envy::Scope) -> anyhow::Result<()> {
+    let path = scope.path();
+    let mut file = envy::EnvFile::load(&path)?;
+    match action {
+        EnvCmd::List => {
+            for src in envy::sources() {
+                if src.vars.is_empty() {
+                    continue;
+                }
+                let tag = match src.editable {
+                    Some(envy::Scope::User) => " (yours)",
+                    Some(envy::Scope::System) => " (system)",
+                    None => "",
+                };
+                println!("{}{tag}", src.path.display());
+                for v in src.vars {
+                    println!("  {}={}", v.key, v.value);
+                }
+            }
+            return Ok(());
+        }
+        EnvCmd::Set { key, value } => file.set(&key, &value)?,
+        EnvCmd::Unset { key } => anyhow::ensure!(file.remove(&key), "{key} isn't set in {}", path.display()),
+    }
+    let backup = file.save(scope)?;
+    println!("Saved {}. It applies the next time you log in.", path.display());
+    if let Some(b) = backup {
+        println!("Backup: {}", b.display());
+    }
+    Ok(())
 }
 
 fn status(caps: &Capabilities, json: bool) -> anyhow::Result<()> {
@@ -461,7 +747,10 @@ fn hostbook_cmd(action: HostCmd, file: &std::path::Path) -> anyhow::Result<()> {
         return Ok(());
     }
     let backup = hosts.save(file)?;
-    println!("Saved {} (backup: {}).", file.display(), backup.display());
+    match backup {
+        Some(b) => println!("Saved {} (backup: {}).", file.display(), b.display()),
+        None => println!("Saved {}.", file.display()),
+    }
     Ok(())
 }
 

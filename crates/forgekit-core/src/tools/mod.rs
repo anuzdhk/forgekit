@@ -1,9 +1,14 @@
+pub mod clipstack;
+pub mod dusk;
+pub mod envy;
 pub mod eyedrop;
+pub mod glance;
 pub mod glyphgrab;
 pub mod hostbook;
 pub mod lockpick;
 pub mod nightowl;
 pub mod relabel;
+pub mod shelf;
 pub mod shrinkray;
 pub mod spark;
 pub mod teku;

@@ -1,7 +1,7 @@
 //! Running work off the UI thread and talking to the `forgekit` CLI.
 
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use gtk::{gdk, gio, glib, prelude::*};
@@ -144,4 +144,117 @@ pub fn append(buf: &gtk::TextBuffer, line: &str) {
     let mut end = buf.end_iter();
     buf.insert(&mut end, line);
     buf.insert(&mut end, "\n");
+}
+
+pub fn file_name(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
+}
+
+pub fn open_uri(uri: &str) {
+    let _ = gio::AppInfo::launch_default_for_uri(uri, gio::AppLaunchContext::NONE);
+}
+
+/// Open a file or folder with its default app.
+pub fn open_path(p: &Path) {
+    open_uri(&gio::File::for_path(p).uri());
+}
+
+/// Show a file selected in the file manager.
+pub fn reveal(p: &Path) {
+    let uri = gio::File::for_path(p).uri().to_string();
+    let call = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).and_then(|bus| {
+        bus.call_sync(
+            Some("org.freedesktop.FileManager1"),
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1",
+            "ShowItems",
+            Some(&(vec![uri], "").to_variant()),
+            None,
+            gio::DBusCallFlags::NONE,
+            2000,
+            gio::Cancellable::NONE,
+        )
+    });
+    if call.is_err()
+        && let Some(dir) = p.parent()
+    {
+        open_path(dir);
+    }
+}
+
+/// Call a no-argument daemon method, ignoring errors (the daemon may not run).
+pub fn daemon_call(path: &str, iface: &str, method: &str) {
+    if let Ok(bus) = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE) {
+        bus.call(
+            Some("org.forgekit.Daemon"),
+            path,
+            iface,
+            method,
+            None,
+            None,
+            gio::DBusCallFlags::NO_AUTO_START,
+            2000,
+            gio::Cancellable::NONE,
+            |_| {},
+        );
+    }
+}
+
+/// Ask the daemon to put a Clipstack item on the clipboard.
+pub fn clipstack_copy(id: i64) -> Result<(), String> {
+    let bus = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).map_err(|e| e.to_string())?;
+    bus.call_sync(
+        Some("org.forgekit.Daemon"),
+        "/org/forgekit/Clipstack",
+        "org.forgekit.Clipstack1",
+        "Copy",
+        Some(&(id,).to_variant()),
+        None,
+        gio::DBusCallFlags::NO_AUTO_START,
+        3000,
+        gio::Cancellable::NONE,
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+/// Run `f` whenever the daemon reports that clipboard history changed.
+/// Returns the subscription, which unsubscribes when dropped.
+pub fn on_clipstack_changed(f: impl Fn() + 'static) -> Option<gio::SignalSubscription> {
+    let bus = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).ok()?;
+    Some(bus.subscribe_to_signal(
+        Some("org.forgekit.Daemon"),
+        Some("org.forgekit.Clipstack1"),
+        Some("Changed"),
+        Some("/org/forgekit/Clipstack"),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |_| f(),
+    ))
+}
+
+/// A square, center-cropped texture from encoded image bytes.
+pub fn thumbnail(bytes: &[u8], max: u32) -> Option<gdk::Texture> {
+    let img =
+        image::load_from_memory(bytes).ok()?.resize_to_fill(max, max, image::imageops::FilterType::Triangle).to_rgba8();
+    let (w, h) = img.dimensions();
+    let b = glib::Bytes::from_owned(img.into_raw());
+    Some(gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &b, w as usize * 4).upcast())
+}
+
+pub fn thumbnail_file(p: &Path, max: u32) -> Option<gdk::Texture> {
+    let img = image::open(p).ok()?.resize_to_fill(max, max, image::imageops::FilterType::Triangle).to_rgba8();
+    let (w, h) = img.dimensions();
+    let b = glib::Bytes::from_owned(img.into_raw());
+    Some(gdk::MemoryTexture::new(w as i32, h as i32, gdk::MemoryFormat::R8g8b8a8, &b, w as usize * 4).upcast())
+}
+
+/// A rounded, fixed-size thumbnail widget.
+pub fn thumb_widget(t: &gdk::Texture, size: i32) -> gtk::Image {
+    let i = gtk::Image::from_paintable(Some(t));
+    i.set_pixel_size(size);
+    i.set_overflow(gtk::Overflow::Hidden);
+    i.add_css_class("fk-thumb");
+    i.set_valign(gtk::Align::Center);
+    i
 }

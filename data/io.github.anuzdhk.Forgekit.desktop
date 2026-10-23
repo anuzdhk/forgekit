@@ -2,16 +2,24 @@
 Type=Application
 Name=Forgekit
 Comment=All-in-one power tools for Linux
-Exec=forgekit-gtk %U
+Exec=forgekit-gtk
 Icon=applications-utilities
 Categories=Utility;System;
-Keywords=powertoys;color;picker;rename;hosts;resize;ocr;launcher;
+Keywords=powertoys;color;picker;rename;hosts;resize;ocr;launcher;clipboard;shelf;theme;environment;
 StartupNotify=true
-Actions=spark;eyedrop;glyphgrab;
+Actions=spark;shelf;clipstack;eyedrop;glyphgrab;
 
 [Desktop Action spark]
 Name=Spark launcher
 Exec=forgekit-gtk spark
+
+[Desktop Action shelf]
+Name=Open DropShelf
+Exec=forgekit-gtk --shelf
+
+[Desktop Action clipstack]
+Name=Clipboard history
+Exec=forgekit-gtk clipstack
 
 [Desktop Action eyedrop]
 Name=Pick a color

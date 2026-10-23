@@ -1,0 +1,197 @@
+/* Forgekit base styles. Colors come from libadwaita's variables, which the
+ * active theme sets (see theme.rs), so everything here follows the theme. */
+
+:root {
+  --fk-muted: color-mix(in srgb, var(--window-fg-color) 60%, transparent);
+  --fk-hairline: color-mix(in srgb, var(--window-fg-color) 9%, transparent);
+  --fk-hover: color-mix(in srgb, var(--window-fg-color) 6%, transparent);
+  --fk-radius: 14px;
+}
+
+.dim { color: var(--fk-muted); }
+.mono { font-family: monospace; }
+
+/* ---------------------------------------------------------------- sidebar */
+
+.fk-sidebar { background: var(--sidebar-bg-color); }
+
+.fk-brand { padding: 14px 14px 6px 16px; }
+.fk-brand-mark {
+  padding: 7px;
+  -gtk-icon-size: 20px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent-bg-color), color-mix(in srgb, var(--accent-bg-color) 55%, #000));
+  color: var(--accent-fg-color);
+}
+.fk-brand-name { font-weight: 800; font-size: 1.25em; letter-spacing: -0.3px; }
+.fk-brand-version { font-size: 0.78em; color: var(--fk-muted); }
+
+.fk-search { margin: 6px 12px 4px 12px; }
+
+.fk-nav { background: transparent; padding: 4px 10px; }
+.fk-nav > row {
+  border-radius: 10px;
+  padding: 7px 10px;
+  margin: 1px 0;
+  min-height: 22px;
+}
+.fk-nav > row:hover { background: var(--fk-hover); }
+.fk-nav > row:selected {
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+.fk-nav > row:selected .dim,
+.fk-nav > row:selected .fk-nav-dot { color: var(--accent-fg-color); }
+.fk-nav > row.unavailable label.title { opacity: 0.55; }
+.fk-nav-header {
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--fk-muted);
+  margin: 14px 12px 4px 14px;
+}
+.fk-nav-dot { font-size: 0.7em; }
+.fk-nav-dot.ok { color: var(--success-color); }
+.fk-nav-dot.warn { color: var(--warning-color); }
+.fk-sidebar-footer { padding: 6px 10px 12px 10px; border-top: 1px solid var(--fk-hairline); }
+
+/* ---------------------------------------------------------------- page */
+
+.fk-page { padding: 24px 28px 40px 28px; }
+.fk-page-title { font-size: 1.7em; font-weight: 800; letter-spacing: -0.4px; }
+.fk-page-subtitle { color: var(--fk-muted); }
+.fk-section-title { font-weight: 700; font-size: 1.05em; margin-top: 8px; }
+
+.fk-card {
+  background: var(--card-bg-color);
+  color: var(--card-fg-color);
+  border-radius: var(--fk-radius);
+  border: 1px solid var(--fk-hairline);
+  box-shadow: 0 1px 2px var(--card-shade-color);
+  padding: 18px;
+}
+.fk-card.flush { padding: 0; }
+.fk-card-title { font-weight: 700; font-size: 1.02em; }
+.fk-card-subtitle { color: var(--fk-muted); font-size: 0.92em; }
+
+/* Tool header */
+.fk-hero { padding: 20px; }
+.fk-icon-tile {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+.fk-icon-tile.big { padding: 15px; }
+.fk-icon-tile.small { padding: 9px; border-radius: 11px; }
+.fk-icon-tile.ok { background: color-mix(in srgb, var(--success-color) 16%, transparent); color: var(--success-color); }
+.fk-icon-tile.warn { background: color-mix(in srgb, var(--warning-color) 18%, transparent); color: var(--warning-color); }
+.fk-icon-tile.off { background: var(--fk-hover); color: var(--fk-muted); }
+.fk-icon-tile.err { background: color-mix(in srgb, var(--error-color) 16%, transparent); color: var(--error-color); }
+.fk-hero-title { font-size: 1.55em; font-weight: 800; letter-spacing: -0.3px; }
+
+/* Status pills */
+.fk-pill {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.82em;
+  font-weight: 600;
+}
+.fk-pill.ok { background: color-mix(in srgb, var(--success-color) 16%, transparent); color: var(--success-color); }
+.fk-pill.warn { background: color-mix(in srgb, var(--warning-color) 18%, transparent); color: var(--warning-color); }
+.fk-pill.soon { background: color-mix(in srgb, var(--accent-color) 14%, transparent); color: var(--accent-color); }
+.fk-pill.off, .fk-pill.na { background: var(--fk-hover); color: var(--fk-muted); }
+
+/* Command chip */
+.fk-chip {
+  border-radius: 9px;
+  background: var(--fk-hover);
+  padding: 2px 4px 2px 10px;
+}
+.fk-chip label { font-family: monospace; font-size: 0.9em; }
+.fk-chip button { min-height: 24px; min-width: 24px; padding: 2px; }
+
+/* Home */
+.fk-stat { padding: 16px; }
+.fk-stat-value { font-size: 1.9em; font-weight: 800; letter-spacing: -0.5px; }
+.fk-stat-label { color: var(--fk-muted); font-size: 0.9em; }
+
+.fk-tiles > flowboxchild { padding: 0; border-radius: var(--fk-radius); }
+.fk-tiles > flowboxchild:focus-visible { outline: 2px solid var(--accent-color); }
+.fk-tile { padding: 16px; transition: all 150ms ease; }
+.fk-tile:hover {
+  border-color: color-mix(in srgb, var(--accent-color) 45%, transparent);
+  box-shadow: 0 6px 18px var(--card-shade-color);
+}
+.fk-tile.unavailable { opacity: 0.6; }
+.fk-tile-title { font-weight: 700; }
+.fk-tile-summary { color: var(--fk-muted); font-size: 0.9em; }
+
+.fk-quick {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--card-bg-color);
+  border: 1px solid var(--fk-hairline);
+}
+.fk-quick:hover { border-color: color-mix(in srgb, var(--accent-color) 45%, transparent); background: var(--card-bg-color); }
+
+/* Tables */
+.fk-table { background: transparent; }
+.fk-table > row { padding: 10px 16px; border-bottom: 1px solid var(--fk-hairline); }
+.fk-table > row:last-child { border-bottom: none; }
+.fk-table > row:hover { background: var(--fk-hover); }
+.fk-table-head {
+  padding: 9px 16px;
+  font-size: 0.8em;
+  font-weight: 700;
+  color: var(--fk-muted);
+  background: color-mix(in srgb, var(--window-fg-color) 3%, transparent);
+  border-bottom: 1px solid var(--fk-hairline);
+  border-radius: var(--fk-radius) var(--fk-radius) 0 0;
+}
+
+.fk-empty { padding: 36px 24px; }
+.fk-empty-title { font-weight: 700; font-size: 1.1em; }
+
+.fk-thumb { border-radius: 8px; background: var(--fk-hover); }
+.fk-kbd {
+  font-family: monospace;
+  font-size: 0.85em;
+  border-radius: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--fk-hairline);
+  background: var(--fk-hover);
+}
+
+/* Settings: theme gallery */
+.fk-themes > flowboxchild { padding: 0; border-radius: 14px; }
+.fk-theme-card {
+  border-radius: 14px;
+  padding: 8px;
+  border: 2px solid transparent;
+}
+.fk-theme-card:hover { background: var(--fk-hover); }
+.fk-theme-card.selected { border-color: var(--accent-color); }
+.fk-theme-preview { border-radius: 10px; min-height: 76px; border: 1px solid var(--fk-hairline); }
+.fk-theme-name { font-size: 0.9em; font-weight: 600; }
+
+.fk-swatch {
+  min-width: 30px; min-height: 30px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  padding: 0;
+}
+.fk-swatch.selected { border-color: var(--window-fg-color); }
+
+/* Shelf & Glance */
+.fk-dropzone {
+  border: 2px dashed var(--fk-hairline);
+  border-radius: 16px;
+  padding: 24px;
+}
+.fk-dropzone.drop-active { border-color: var(--accent-color); background: color-mix(in srgb, var(--accent-bg-color) 8%, transparent); }
+.fk-shelf-item { padding: 8px 10px; border-radius: 12px; }
+.fk-shelf-item:hover { background: var(--fk-hover); }
+.fk-missing { color: var(--warning-color); font-size: 0.85em; }
+
+.fk-code { font-family: monospace; font-size: 0.92em; }
+textview.fk-code, textview.fk-code > text { background: transparent; }

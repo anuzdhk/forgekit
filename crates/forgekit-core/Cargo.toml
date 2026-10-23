@@ -17,6 +17,10 @@ image = "0.25"
 libc = "0.2"
 wayland-client = "0.31"
 dirs = "6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+x11rb = { version = "0.13", features = ["xfixes"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [dev-dependencies]
 tempfile = "3"

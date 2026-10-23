@@ -95,7 +95,7 @@ On Wayland, an app with no focused window normally can't see the clipboard. A cl
 | X11 (any desktop) | XFixes selection events |
 | KDE Plasma 6 | `ext-data-control-v1` (or `wlr-data-control`) |
 | Hyprland, Sway, labwc, other wlroots | `wlr-data-control-unstable-v1` |
-| GNOME (Mutter) | No data-control protocol. Ships a **tiny companion GNOME Shell extension** that watches the clipboard and sends items to the Forgekit daemon over D-Bus |
+| GNOME (Mutter) | No data-control protocol. **v0.2 uses XWayland's clipboard bridge** (tested both ways on GNOME Wayland, including 1.9 MB PNGs). A companion Shell extension calling `org.forgekit.Clipstack1.Add` remains the fallback for sessions without XWayland |
 
 **Optional auto-paste:** pressing Enter in Clipstack can also type Ctrl+V for you through the Keysmith helper (uinput). Off by default.
 
