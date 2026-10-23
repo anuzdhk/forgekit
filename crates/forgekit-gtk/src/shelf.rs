@@ -20,6 +20,8 @@ struct ShelfWin {
     drag_all: gtk::Box,
     count: gtk::Label,
     toasts: adw::ToastOverlay,
+    /// Opened by a drag and nothing dropped yet: close again when the drag ends.
+    auto: std::cell::Cell<bool>,
 }
 
 thread_local! {
@@ -33,25 +35,39 @@ fn ext(p: &std::path::Path) -> String {
     p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
 }
 
-pub fn open(app: &adw::Application, files: Vec<PathBuf>) {
+/// Open (or raise) the shelf. `auto` = opened because a drag started.
+pub fn open(app: &adw::Application, files: Vec<PathBuf>, auto: bool) {
     let existing = OPEN.with_borrow(|o| o.clone());
-    let s = existing.unwrap_or_else(|| {
-        let s = build(app);
-        OPEN.set(Some(s.clone()));
-        s
-    });
+    let s = match existing {
+        Some(s) => s,
+        None => {
+            let s = build(app);
+            s.auto.set(auto);
+            OPEN.set(Some(s.clone()));
+            s
+        }
+    };
     if !files.is_empty() {
         s.add_files(files);
     }
     s.window.present();
 }
 
+/// A drag that opened the shelf ended: close it unless something was dropped.
+pub fn dismiss() {
+    if let Some(s) = OPEN.with_borrow(|o| o.clone())
+        && s.auto.get()
+    {
+        s.window.close();
+    }
+}
+
 fn build(app: &adw::Application) -> Rc<ShelfWin> {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("DropShelf")
-        .default_width(380)
-        .default_height(540)
+        .default_width(340)
+        .default_height(440)
         .build();
     let header =
         adw::HeaderBar::builder().title_widget(&adw::WindowTitle::new("DropShelf", "Drop now, drag out later")).build();
@@ -100,7 +116,16 @@ fn build(app: &adw::Application) -> Rc<ShelfWin> {
     view.set_content(Some(&toasts));
     window.set_content(Some(&view));
 
-    let s = Rc::new(ShelfWin { window, shelf: RefCell::new(Shelf::load()), list, empty, drag_all, count, toasts });
+    let s = Rc::new(ShelfWin {
+        window,
+        shelf: RefCell::new(Shelf::load()),
+        list,
+        empty,
+        drag_all,
+        count,
+        toasts,
+        auto: std::cell::Cell::new(false),
+    });
 
     // Drops: files, or text (links become link items).
     let target = gtk::DropTarget::new(glib::Type::INVALID, gdk::DragAction::COPY);
@@ -200,6 +225,8 @@ impl ShelfWin {
     }
 
     fn changed(self: &Rc<Self>) {
+        // Something was dropped or changed: the shelf stays open now.
+        self.auto.set(false);
         if let Err(e) = self.shelf.borrow().save() {
             self.toast(&format!("Couldn't save the shelf: {e:#}"));
         }

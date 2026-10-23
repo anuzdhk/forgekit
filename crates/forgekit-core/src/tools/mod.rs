@@ -18,15 +18,39 @@ use std::process::{Command, Stdio};
 
 use crate::Capabilities;
 
-/// Put text on the clipboard with whatever helper the session has.
-/// Returns `false` when no helper is installed.
+/// Put text on the clipboard: through wl-copy/xclip/xsel when installed,
+/// otherwise through forgekitd's clipboard backend. Returns `false` when
+/// neither is available.
 pub fn copy_to_clipboard(caps: &Capabilities, text: &str) -> anyhow::Result<bool> {
-    let Some(cmd) = caps.clipboard_cmd() else {
-        return Ok(false);
-    };
-    let mut child = Command::new(cmd[0]).args(&cmd[1..]).stdin(Stdio::piped()).spawn()?;
-    child.stdin.take().unwrap().write_all(text.as_bytes())?;
-    // wl-copy/xclip fork to serve the selection; the parent exits quickly.
-    child.wait()?;
-    Ok(true)
+    if let Some(cmd) = caps.clipboard_cmd() {
+        let mut child = Command::new(cmd[0]).args(&cmd[1..]).stdin(Stdio::piped()).spawn()?;
+        child.stdin.take().unwrap().write_all(text.as_bytes())?;
+        // wl-copy/xclip fork to serve the selection; the parent exits quickly.
+        child.wait()?;
+        return Ok(true);
+    }
+    let Ok(conn) = zbus::blocking::Connection::session() else { return Ok(false) };
+    Ok(conn
+        .call_method(
+            Some("org.forgekit.Daemon"),
+            "/org/forgekit/Clipstack",
+            Some("org.forgekit.Clipstack1"),
+            "SetText",
+            &text,
+        )
+        .is_ok())
+}
+
+/// A desktop notification (for actions started from a keyboard shortcut,
+/// where there's no terminal to print to).
+pub fn notify(summary: &str, body: &str) {
+    let Ok(conn) = zbus::blocking::Connection::session() else { return };
+    let hints = std::collections::HashMap::<&str, zbus::zvariant::Value>::new();
+    let _ = conn.call_method(
+        Some("org.freedesktop.Notifications"),
+        "/org/freedesktop/Notifications",
+        Some("org.freedesktop.Notifications"),
+        "Notify",
+        &("Forgekit", 0u32, "io.github.anuzdhk.Forgekit", summary, body, Vec::<&str>::new(), hints, 4000i32),
+    );
 }

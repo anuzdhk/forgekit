@@ -58,12 +58,31 @@ pub struct Shelf {
     pub items: Vec<Item>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// Copy dropped files into the shelf (for temporary downloads) instead of keeping references.
     pub copy_files: bool,
+    /// Pop the shelf up when a drag starts (needs the desktop integration).
+    pub auto_show: bool,
+    /// Only for drags that carry files, not text or tabs.
+    pub files_only: bool,
+    /// `bottom-right`, `bottom-left`, `top-right` or `top-left`.
+    pub corner: String,
 }
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { copy_files: false, auto_show: true, files_only: true, corner: "bottom-right".into() }
+    }
+}
+
+pub const CORNERS: &[(&str, &str)] = &[
+    ("bottom-right", "Bottom right"),
+    ("bottom-left", "Bottom left"),
+    ("top-right", "Top right"),
+    ("top-left", "Top left"),
+];
 
 impl Settings {
     pub fn load() -> anyhow::Result<Self> {

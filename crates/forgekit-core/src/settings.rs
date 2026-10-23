@@ -31,11 +31,24 @@ pub fn save<T: Serialize>(tool: &str, value: &T) -> anyhow::Result<()> {
     std::fs::rename(&tmp, &path).with_context(|| format!("writing {}", path.display()))
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct General {
     /// Tools the user switched off. Everything else is on.
     #[serde(default)]
     pub disabled: BTreeMap<String, bool>,
+    /// Look for a new release on GitHub once a day.
+    #[serde(default = "yes")]
+    pub check_updates: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for General {
+    fn default() -> Self {
+        General { disabled: BTreeMap::new(), check_updates: true }
+    }
 }
 
 impl General {

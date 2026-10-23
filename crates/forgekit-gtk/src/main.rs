@@ -5,11 +5,13 @@
 //! `forgekit-gtk --shelf [FILE…]` opens DropShelf. One instance handles all of
 //! them, so a second `--shelf FILE` adds to the shelf that's already open.
 
+mod desktop_ext;
 mod glance;
 mod home;
 mod pages;
 mod settings_page;
 mod shelf;
+mod shortcut;
 mod theme;
 mod util;
 mod widgets;
@@ -44,7 +46,11 @@ fn main() -> glib::ExitCode {
                 Some(f) => glance::open(app, &abs(f)),
                 None => eprintln!("usage: forgekit-gtk --glance FILE"),
             },
-            Some("--shelf") => shelf::open(app, args[1..].iter().map(abs).collect()),
+            Some("--shelf") => {
+                let auto = args.iter().any(|a| a == "--auto");
+                shelf::open(app, args[1..].iter().filter(|a| !a.starts_with("--")).map(abs).collect(), auto)
+            }
+            Some("--shelf-dismiss") => shelf::dismiss(),
             first => {
                 let main = state.borrow_mut().get_or_insert_with(|| window::App::new(app)).clone();
                 if let Some(id) = first.and_then(forgekit_core::catalog::find).map(|t| t.id) {
@@ -79,6 +85,10 @@ fn setup_display() {
     base.load_from_resource(&format!("{RESOURCES}/style.css"));
     gtk::style_context_add_provider_for_display(&display, &base, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     apply_theme(&theme::Appearance::load());
+    // Keep the desktop extension pointed at this copy of the app.
+    if desktop_ext::state() != desktop_ext::State::NotInstalled {
+        desktop_ext::write_config();
+    }
 }
 
 thread_local! {
@@ -89,11 +99,8 @@ thread_local! {
 pub fn apply_theme(a: &theme::Appearance) {
     let t = theme::find(&a.theme);
     let style = adw::StyleManager::default();
-    style.set_color_scheme(match t.palette {
-        None => adw::ColorScheme::Default,
-        Some(p) if p.dark => adw::ColorScheme::ForceDark,
-        Some(_) => adw::ColorScheme::ForceLight,
-    });
+    // Our own light/dark, whatever the desktop prefers.
+    style.set_color_scheme(if t.palette.dark { adw::ColorScheme::ForceDark } else { adw::ColorScheme::ForceLight });
     THEME_CSS.with(|p| {
         p.load_from_string(&theme::css(t, a));
         if let Some(display) = gdk::Display::default() {

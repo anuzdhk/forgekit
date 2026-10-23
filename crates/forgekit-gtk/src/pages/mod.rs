@@ -43,6 +43,9 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
     info.append(&w::label(tool.summary, &["dim"]));
     let a = app.clone();
     info.append(&w::command_chip(&format!("forgekit {}", tool.id), move || a.toast("Command copied")));
+    if !tool.is_planned() && !matches!(status, Status::Unsupported(_)) {
+        info.append(&crate::shortcut::row(tool, app));
+    }
     hero.append(&info);
 
     let switch = gtk::Switch::builder()

@@ -7,7 +7,9 @@ pub mod helper;
 pub mod paths;
 pub mod privileged;
 pub mod settings;
+pub mod shortcuts;
 pub mod tools;
+pub mod update;
 
 pub use capability::{Capabilities, Status};
 pub use catalog::{CATALOG, Tier, Tool};

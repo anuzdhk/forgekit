@@ -18,7 +18,7 @@ pub fn build(app: &Rc<App>) -> gtk::Widget {
     root.append(&appearance(app));
     root.append(&behavior(app));
     root.append(&system(app));
-    root.append(&about());
+    root.append(&about(app));
     w::page(&root).upcast()
 }
 
@@ -100,20 +100,7 @@ fn appearance(app: &Rc<App>) -> gtk::Box {
         }
         let area =
             gtk::DrawingArea::builder().content_height(76).content_width(132).css_classes(["fk-theme-preview"]).build();
-        match t.palette {
-            Some(p) => area.set_draw_func(preview_draw(p)),
-            None => {
-                // System: half light, half dark.
-                let light = theme::find("light").palette.unwrap();
-                let dark = theme::find("dark").palette.unwrap();
-                area.set_draw_func(move |a, cr, wd, ht| {
-                    preview_draw(light)(a, cr, wd, ht);
-                    cr.rectangle(wd as f64 / 2.0, 0.0, wd as f64 / 2.0, ht as f64);
-                    cr.clip();
-                    preview_draw(dark)(a, cr, wd, ht);
-                });
-            }
-        }
+        area.set_draw_func(preview_draw(t.palette));
         c.append(&area);
         let name = hbox(6);
         name.set_halign(gtk::Align::Center);
@@ -379,7 +366,7 @@ fn system(app: &Rc<App>) -> gtk::Box {
     card
 }
 
-fn about() -> gtk::Box {
+fn about(app: &Rc<App>) -> gtk::Box {
     let (card, body) = w::card("About", "");
     let top = hbox(14);
     let mark = w::icon("hammer", 30);
@@ -402,5 +389,65 @@ fn about() -> gtk::Box {
         links.append(&b);
     }
     body.append(&links);
+    body.append(&updates(app));
     card
+}
+
+fn updates(app: &Rc<App>) -> gtk::ListBox {
+    use forgekit_core::settings::General;
+    use forgekit_core::update::{self, Outcome};
+    let rows = gtk::ListBox::builder().css_classes(["boxed-list"]).selection_mode(gtk::SelectionMode::None).build();
+    let auto = adw::SwitchRow::builder()
+        .title("Check for updates")
+        .subtitle("Once a day, a single anonymous request to GitHub")
+        .active(General::load().unwrap_or_default().check_updates)
+        .build();
+    let a = app.clone();
+    auto.connect_active_notify(move |r| {
+        let mut g = General::load().unwrap_or_default();
+        g.check_updates = r.is_active();
+        if let Err(e) = g.save() {
+            a.toast(&format!("{e:#}"));
+        }
+    });
+    rows.append(&auto);
+    let last = match update::last_checked() {
+        Some(d) if d.as_secs() < 120 => "Last checked just now".to_string(),
+        Some(d) if d.as_secs() < 7200 => format!("Last checked {} min ago", d.as_secs() / 60),
+        Some(d) if d.as_secs() < 172800 => format!("Last checked {} h ago", d.as_secs() / 3600),
+        Some(d) => format!("Last checked {} days ago", d.as_secs() / 86400),
+        None => "Not checked yet".to_string(),
+    };
+    let now =
+        adw::ActionRow::builder().title(format!("Forgekit {}", env!("CARGO_PKG_VERSION"))).subtitle(&last).build();
+    let btn = w::button("Check now", Some("refresh"), "");
+    let row = now.clone();
+    let a = app.clone();
+    btn.connect_clicked(move |b| {
+        b.set_sensitive(false);
+        let (b, row, a) = (b.clone(), row.clone(), a.clone());
+        util::background(
+            || update::check_now(env!("CARGO_PKG_VERSION")).map_err(|e| format!("{e:#}")),
+            move |r| {
+                b.set_sensitive(true);
+                match r {
+                    Ok(Outcome::UpToDate) => row.set_subtitle("You have the latest version"),
+                    Ok(Outcome::NoReleases) => {
+                        row.set_subtitle("No releases published yet; this is a development build")
+                    }
+                    Ok(Outcome::Available(rel)) => {
+                        row.set_subtitle(&format!("Version {} is available", rel.version));
+                        let url = rel.url.clone();
+                        let open = w::button("Download", Some("download"), "suggested-action");
+                        open.connect_clicked(move |_| util::open_uri(&url));
+                        row.add_suffix(&open);
+                    }
+                    Err(e) => a.toast(&e),
+                }
+            },
+        );
+    });
+    now.add_suffix(&btn);
+    rows.append(&now);
+    rows
 }

@@ -96,11 +96,7 @@ pub fn spark(app: &Rc<App>) -> Cards {
         });
     }
 
-    let (tip, tip_body) =
-        w::card("Open Spark from anywhere", "Add a keyboard shortcut in your desktop's settings that runs:");
-    let a = app.clone();
-    tip_body.append(&w::command_chip("forgekit-gtk spark", move || a.toast("Command copied")));
-    vec![card.upcast(), tip.upcast()]
+    vec![card.upcast()]
 }
 
 // ------------------------------------------------------------------ Clipstack
@@ -395,7 +391,7 @@ pub fn shelf(app: &Rc<App>) -> Cards {
         let win = app.window.clone();
         open.connect_clicked(move |_| {
             if let Some(a) = win.application().and_downcast::<adw::Application>() {
-                crate::shelf::open(&a, Vec::new());
+                crate::shelf::open(&a, Vec::new(), false);
             }
         });
     }
@@ -425,20 +421,128 @@ pub fn shelf(app: &Rc<App>) -> Cards {
         .build();
     let a = app.clone();
     copy.connect_active_notify(move |r| {
-        if let Err(e) = (shelf::Settings { copy_files: r.is_active() }).save() {
+        let mut st = shelf::Settings::load().unwrap_or_default();
+        st.copy_files = r.is_active();
+        if let Err(e) = st.save() {
             a.toast(&format!("{e:#}"));
         }
     });
     rows.append(&copy);
-    let shortcut = adw::ActionRow::builder()
-        .title("Keyboard shortcut")
-        .subtitle("Bind this command in your desktop's keyboard settings")
-        .build();
-    let a = app.clone();
-    shortcut.add_suffix(&w::command_chip("forgekit shelf", move || a.toast("Command copied")));
-    rows.append(&shortcut);
     opts_body.append(&rows);
-    vec![hero.upcast(), how.upcast(), opts.upcast()]
+    vec![hero.upcast(), popup_card(app), how.upcast(), opts.upcast()]
+}
+
+/// "Pop up while dragging": the GNOME Shell extension and its settings.
+fn popup_card(app: &Rc<App>) -> gtk::Widget {
+    use crate::desktop_ext::{self as ext, State};
+    use forgekit_core::capability::{Desktop, Session};
+
+    let gnome = app.caps.desktop == Desktop::Gnome && app.caps.session == Session::Wayland;
+    let (card, body) = w::card(
+        "Pop up while dragging",
+        "Start dragging files and the shelf appears in a corner, on top of everything. It closes again if you don't drop anything on it.",
+    );
+    if !gnome {
+        body.append(&w::label(
+            "This needs desktop support that's only available on GNOME so far. Open the shelf with its keyboard shortcut instead.",
+            &["dim"],
+        ));
+        return card.upcast();
+    }
+
+    let status = adw::ActionRow::new();
+    let state = ext::state();
+    let (icon, tone, title, sub) = match state {
+        State::Active => ("circle-check", "ok", "Ready", "The Forgekit GNOME extension is running."),
+        State::NeedsRelogin => (
+            "alert-triangle",
+            "warn",
+            "Log out and back in once",
+            "GNOME loads newly installed extensions at the next login.",
+        ),
+        State::Disabled => ("eye-off", "off", "Extension turned off", "Turn it on to let the shelf pop up."),
+        State::Error => ("alert-triangle", "err", "GNOME couldn't load the extension", "Try reinstalling it."),
+        State::NotInstalled => (
+            "shield-check",
+            "",
+            "Needs a small GNOME extension",
+            "GNOME doesn't let apps see drags or place their windows. The extension only watches for drags starting and positions the shelf.",
+        ),
+    };
+    status.set_title(title);
+    status.set_subtitle(sub);
+    status.add_prefix(&w::icon_tile(icon, false, tone));
+    let action = match state {
+        State::NotInstalled | State::Error => Some(w::button(
+            if state == State::Error { "Reinstall" } else { "Install" },
+            Some("download"),
+            "suggested-action",
+        )),
+        State::Disabled => Some(w::button("Turn on", Some("player-play"), "suggested-action")),
+        _ => None,
+    };
+    if let Some(b) = action {
+        let a = app.clone();
+        b.connect_clicked(move |_| {
+            match ext::install() {
+                Ok(true) => a.toast("Ready: start dragging some files"),
+                Ok(false) => a.toast("Installed. Log out and back in once to finish."),
+                Err(e) => a.toast(&e),
+            }
+            a.rebuild_page("shelf");
+        });
+        status.add_suffix(&b);
+    } else if state != State::NotInstalled {
+        let rm = w::icon_button("trash", "Remove the extension");
+        let a = app.clone();
+        rm.connect_clicked(move |_| {
+            match ext::remove() {
+                Ok(()) => a.toast("Extension removed"),
+                Err(e) => a.toast(&e),
+            }
+            a.rebuild_page("shelf");
+        });
+        status.add_suffix(&rm);
+    }
+    let rows = boxed_list();
+    rows.append(&status);
+
+    let s = shelf::Settings::load().unwrap_or_default();
+    let auto = adw::SwitchRow::builder().title("Show when I start dragging").active(s.auto_show).build();
+    let files = adw::SwitchRow::builder()
+        .title("Only for files")
+        .subtitle("Ignore dragged text, links and browser tabs")
+        .active(s.files_only)
+        .build();
+    let corners = gtk::StringList::new(&shelf::CORNERS.iter().map(|(_, n)| *n).collect::<Vec<_>>());
+    let corner = adw::ComboRow::builder().title("Corner").model(&corners).build();
+    corner.set_selected(shelf::CORNERS.iter().position(|(id, _)| *id == s.corner).unwrap_or(0) as u32);
+    files.set_sensitive(s.auto_show);
+
+    let save = {
+        let (a, auto, files, corner) = (app.clone(), auto.clone(), files.clone(), corner.clone());
+        Rc::new(move || {
+            let mut st = shelf::Settings::load().unwrap_or_default();
+            st.auto_show = auto.is_active();
+            st.files_only = files.is_active();
+            st.corner = shelf::CORNERS[corner.selected() as usize].0.to_string();
+            files.set_sensitive(st.auto_show);
+            match st.save() {
+                Ok(()) => ext::write_config(),
+                Err(e) => a.toast(&format!("{e:#}")),
+            }
+        })
+    };
+    for r in [&auto, &files] {
+        let save = save.clone();
+        r.connect_active_notify(move |_| save());
+    }
+    corner.connect_selected_notify(move |_| save());
+    rows.append(&auto);
+    rows.append(&files);
+    rows.append(&corner);
+    body.append(&rows);
+    card.upcast()
 }
 
 // ------------------------------------------------------------------ Eyedrop

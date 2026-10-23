@@ -202,3 +202,6 @@ button.pill.fk-chip-toggle:checked:hover {
   background: var(--accent-bg-color);
   color: var(--accent-fg-color);
 }
+
+/* Inline text buttons ("Add keyboard shortcut") */
+button.fk-link { padding: 2px 6px; min-height: 24px; color: var(--accent-color); font-weight: 600; }

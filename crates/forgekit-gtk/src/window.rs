@@ -178,6 +178,7 @@ impl App {
 
         let content = adw::ToolbarView::new();
         content.add_top_bar(&header);
+        content.add_top_bar(&self.update_banner());
         content.set_content(Some(&self.stack));
         self.toasts.set_child(Some(&content));
         self.split.set_content(Some(&self.toasts));
@@ -217,6 +218,30 @@ impl App {
         self.window.add_controller(keys);
     }
 
+    /// "Forgekit X is available" banner, filled by a background daily check.
+    fn update_banner(&self) -> adw::Banner {
+        let banner = adw::Banner::builder().button_label("What's new").revealed(false).build();
+        if !General::load().unwrap_or_default().check_updates {
+            return banner;
+        }
+        let b = banner.clone();
+        crate::util::background(
+            || forgekit_core::update::check_daily(env!("CARGO_PKG_VERSION")).ok(),
+            move |r| {
+                if let Some(forgekit_core::update::Outcome::Available(rel)) = r {
+                    b.set_title(&format!(
+                        "Forgekit {} is available (you have {})",
+                        rel.version,
+                        env!("CARGO_PKG_VERSION")
+                    ));
+                    b.connect_button_clicked(move |_| crate::util::open_uri(&rel.url));
+                    b.set_revealed(true);
+                }
+            },
+        );
+        banner
+    }
+
     /// Popover with every theme, for switching without opening Settings.
     fn theme_button(&self) -> gtk::MenuButton {
         let list = gtk::ListBox::builder().css_classes(["navigation-sidebar"]).build();
@@ -225,7 +250,7 @@ impl App {
             row.set_margin_top(2);
             row.set_margin_bottom(2);
             let dot = gtk::Label::builder().use_markup(true).build();
-            let color = t.palette.map(|p| p.accent).unwrap_or("#888888");
+            let color = t.palette.accent;
             dot.set_markup(&format!("<span foreground='{color}'>●</span>"));
             row.append(&dot);
             row.append(&w::label(t.name, &[]));

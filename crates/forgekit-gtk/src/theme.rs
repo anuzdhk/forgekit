@@ -1,6 +1,6 @@
 //! Themes. Each one is a palette that is turned into libadwaita's CSS color
-//! variables, so every widget (ours and libadwaita's) follows it. "System"
-//! leaves libadwaita alone and follows the desktop's light/dark and accent.
+//! variables, so every widget (ours and libadwaita's) follows it. Forgekit
+//! always uses its own theme; it never picks up the desktop's style or accent.
 
 use serde::{Deserialize, Serialize};
 
@@ -25,15 +25,14 @@ pub struct Palette {
 pub struct Theme {
     pub id: &'static str,
     pub name: &'static str,
-    /// `None` = System.
-    pub palette: Option<Palette>,
+    pub palette: Palette,
     /// Glass themes make backgrounds translucent by the opacity setting.
     pub glass: bool,
 }
 
 macro_rules! p {
     ($dark:expr, $bg:literal, $surface:literal, $sidebar:literal, $fg:literal, $muted:literal, $accent:literal, $accent_fg:literal, $ok:literal, $warn:literal, $err:literal) => {
-        Some(Palette {
+        Palette {
             dark: $dark,
             bg: $bg,
             surface: $surface,
@@ -45,16 +44,15 @@ macro_rules! p {
             success: $ok,
             warning: $warn,
             error: $err,
-        })
+        }
     };
 }
 
-const fn t(id: &'static str, name: &'static str, palette: Option<Palette>) -> Theme {
+const fn t(id: &'static str, name: &'static str, palette: Palette) -> Theme {
     Theme { id, name, palette, glass: false }
 }
 
 pub static THEMES: &[Theme] = &[
-    t("system", "System", None),
     t(
         "light",
         "Forge Light",
@@ -235,9 +233,12 @@ pub static THEMES: &[Theme] = &[
     },
 ];
 
+/// The theme with this id. Unknown ids (including the old "system") get Forge Dark.
 pub fn find(id: &str) -> &'static Theme {
-    THEMES.iter().find(|t| t.id == id).unwrap_or(&THEMES[0])
+    THEMES.iter().find(|t| t.id == id).or_else(|| THEMES.iter().find(|t| t.id == DEFAULT)).unwrap()
 }
+
+pub const DEFAULT: &str = "dark";
 
 /// Accent overrides offered in Settings (`None` keeps the theme's own).
 pub static ACCENTS: &[(&str, &str)] = &[
@@ -268,7 +269,7 @@ pub struct Appearance {
 
 impl Default for Appearance {
     fn default() -> Self {
-        Appearance { theme: "system".into(), accent: None, opacity: 0.82, hide_unavailable: false, hide_planned: false }
+        Appearance { theme: DEFAULT.into(), accent: None, opacity: 0.82, hide_unavailable: false, hide_planned: false }
     }
 }
 
@@ -303,14 +304,9 @@ fn contrast(hex: &str) -> &'static str {
     if lum > 160.0 { "#11131a" } else { "#ffffff" }
 }
 
-/// CSS for a theme, or an empty string for "System".
+/// CSS that sets libadwaita's color variables for a theme.
 pub fn css(theme: &Theme, appearance: &Appearance) -> String {
-    let Some(p) = theme.palette else {
-        return match &appearance.accent {
-            Some(a) => accent_css(a, contrast(a)),
-            None => String::new(),
-        };
-    };
+    let p = theme.palette;
     let (accent, accent_fg) = match &appearance.accent {
         Some(a) => (a.as_str(), contrast(a)),
         None => (p.accent, p.accent_fg),
@@ -379,12 +375,12 @@ mod tests {
     fn every_theme_renders() {
         let a = Appearance::default();
         for t in THEMES {
-            let c = css(t, &a);
-            assert_eq!(c.is_empty(), t.palette.is_none(), "{}", t.id);
+            assert!(css(t, &a).contains("--accent-bg-color"), "{}", t.id);
         }
         assert!(css(find("glass-dark"), &a).contains("rgba(18,20,27,0.820)"));
         assert_eq!(contrast("#ffffff"), "#11131a");
         assert_eq!(contrast("#1e1e2e"), "#ffffff");
-        assert_eq!(find("nope").id, "system");
+        assert_eq!(find("system").id, "dark");
+        assert_eq!(Appearance::default().theme, "dark");
     }
 }

@@ -31,7 +31,7 @@ Status: **v0.3 (Input)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog 
 | Keysmith | `forgekit keysmith [list\|add capslock ctrl\|add ctrl+h backspace\|add insert none\|remove N\|on\|off]` | Remap keys (also while held, e.g. CapsLock → Ctrl), turn shortcuts into others, or switch keys off |
 | Umlaut | `forgekit umlaut [status\|on\|off\|delay MS\|languages french,german]` | Hold a letter, tap Space or →/← to cycle é è ê ë…, release to keep. Shift for capitals |
 
-`forgekit status` shows what this desktop supports. `forgekit enable|disable <tool>` toggles tools. Running `forgekit` with no arguments opens the app.
+`forgekit status` shows what this desktop supports. `forgekit shortcut set eyedrop super+shift+c` binds a global shortcut (GNOME and Cinnamon; also from each tool's page in the app). `forgekit update` checks GitHub for a newer release. `forgekit enable|disable <tool>` toggles tools. Running `forgekit` with no arguments opens the app.
 
 ### How Clipstack reads the clipboard
 
@@ -68,7 +68,10 @@ Umlaut types accents with Ctrl+Shift+U (IBus's Unicode entry, on by default in G
 
 - **Navigation by task:** Everyday, Files, System, Keyboard, Windows, Presenting, Maintenance. `Ctrl+K` searches tools; `Ctrl+,` opens Settings.
 - **Home** shows what's ready, what needs a setup step (with the exact install command for your distro), and quick actions.
-- **Themes:** System, Forge Light/Dark, Catppuccin (Latte, Frappé, Macchiato, Mocha), Dracula, Nord, Gruvbox (Dark, Light), Tokyo Night, Material (Palenight, Ocean), One Dark, Rosé Pine (and Dawn), Everforest, Kanagawa, Solarized (Dark, Light), and translucent Glass (Dark, Light) with adjustable opacity. Any theme can take an accent override. Switch from Settings or the palette button in the header bar.
+- **Themes:** Forgekit always uses its own theme (default Forge Dark), never the desktop's. Forge Light/Dark, Catppuccin (Latte, Frappé, Macchiato, Mocha), Dracula, Nord, Gruvbox (Dark, Light), Tokyo Night, Material (Palenight, Ocean), One Dark, Rosé Pine (and Dawn), Everforest, Kanagawa, Solarized (Dark, Light), and translucent Glass (Dark, Light) with adjustable opacity. Any theme can take an accent override. Switch from Settings or the palette button in the header bar.
+- **Keyboard shortcuts** can be added from any tool's page. They're saved in GNOME's own custom shortcuts, so they work even when Forgekit is closed, and clashes with existing shortcuts are flagged.
+- **DropShelf pops up** in a screen corner when you start dragging files (GNOME, via the bundled companion extension installed from the DropShelf page; log out and in once after installing).
+- **Updates:** one anonymous request to GitHub per day, off-switch in Settings → About.
 - **Icons** are [Tabler Icons](https://tabler.io/icons) (MIT), converted to GTK's stroked symbolic format by `tools/import-tabler-icons.py`, so they follow the theme's colors.
 
 ```bash

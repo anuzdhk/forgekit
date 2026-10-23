@@ -114,6 +114,15 @@ impl Clipstack {
         Ok(())
     }
 
+    /// Put text on the clipboard (used by the CLI when no clipboard tool is installed).
+    async fn set_text(&self, text: String) -> fdo::Result<()> {
+        let guard = self.running.lock().unwrap();
+        let r = guard.as_ref().ok_or_else(|| failed("Clipstack isn't running"))?;
+        r.commands.send(Command::Set(clipstack::Clip::text(&text))).map_err(failed)?;
+        clipstack::wake(&r.wake);
+        Ok(())
+    }
+
     /// Record a clip from an outside source (e.g. a desktop extension).
     async fn add(
         &self,

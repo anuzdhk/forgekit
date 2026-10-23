@@ -50,7 +50,7 @@ pub fn build(app: &Rc<App>) -> gtk::Widget {
         let win = app.window.clone();
         shelf_btn.connect_clicked(move |_| {
             if let Some(a) = win.application().and_downcast::<adw::Application>() {
-                crate::shelf::open(&a, Vec::new());
+                crate::shelf::open(&a, Vec::new(), false);
             }
         });
     }

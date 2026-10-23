@@ -49,6 +49,9 @@ enum Cmd {
         /// Print recently picked colors instead
         #[arg(long)]
         history: bool,
+        /// Report the result as a desktop notification (for keyboard shortcuts)
+        #[arg(long)]
+        notify: bool,
     },
     /// Keep the PC awake (until Ctrl+C, for a time, or while a process runs)
     Nightowl {
@@ -58,6 +61,9 @@ enum Cmd {
         /// Stay awake while this process is running
         #[arg(long = "while", value_name = "PID")]
         pid: Option<u32>,
+        /// Turn keep-awake on or off in the background service
+        #[arg(long, conflicts_with_all = ["duration", "pid"])]
+        toggle: bool,
     },
     /// Select an area of the screen and copy its text
     Glyphgrab {
@@ -69,6 +75,9 @@ enum Cmd {
         image: Option<PathBuf>,
         #[arg(long)]
         no_copy: bool,
+        /// Report the result as a desktop notification (for keyboard shortcuts)
+        #[arg(long)]
+        notify: bool,
     },
     /// Bulk-rename files (preview by default; --apply to rename)
     Relabel {
@@ -161,6 +170,13 @@ enum Cmd {
         /// Edit /etc/environment instead of your user file
         #[arg(long, global = true)]
         system: bool,
+    },
+    /// Check GitHub for a newer Forgekit release
+    Update,
+    /// Global keyboard shortcuts for tools (saved in your desktop's settings)
+    Shortcut {
+        #[command(subcommand)]
+        action: Option<ShortcutCmd>,
     },
     /// The privileged input helper that Keysmith and Umlaut need
     Helper {
@@ -267,6 +283,19 @@ enum EnvCmd {
     },
     Unset {
         key: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ShortcutCmd {
+    List,
+    /// e.g. `set eyedrop super+shift+c`
+    Set {
+        tool: String,
+        keys: String,
+    },
+    Remove {
+        tool: String,
     },
 }
 
@@ -381,25 +410,36 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             }
             Ok(())
         }
-        Cmd::Eyedrop { format, no_copy, history } => {
+        Cmd::Eyedrop { format, no_copy, history, notify } => {
             if history {
                 for c in eyedrop::history() {
                     println!("{}", c.format(format));
                 }
                 return Ok(());
             }
-            gate("eyedrop", &caps)?;
-            let c = block_on(eyedrop::pick())?;
-            eyedrop::remember(c)?;
-            let text = c.format(format);
-            println!("{text}");
-            copy(&caps, &text, no_copy)
+            notifying(notify, "Eyedrop", || {
+                gate("eyedrop", &caps)?;
+                let c = block_on(eyedrop::pick())?;
+                eyedrop::remember(c)?;
+                let text = c.format(format);
+                println!("{text}");
+                copy(&caps, &text, no_copy)?;
+                Ok(format!("Copied {text}"))
+            })
         }
-        Cmd::Nightowl { duration, pid } => {
+        Cmd::Nightowl { toggle: true, .. } => {
+            gate("nightowl", &caps)?;
+            let on = nightowl_toggle()?;
+            let msg = if on { "Keeping your PC awake" } else { "Normal sleep settings again" };
+            println!("{msg}.");
+            tools::notify("Nightowl", msg);
+            Ok(())
+        }
+        Cmd::Nightowl { duration, pid, .. } => {
             gate("nightowl", &caps)?;
             nightowl_cmd(duration, pid)
         }
-        Cmd::Glyphgrab { lang, image, no_copy } => {
+        Cmd::Glyphgrab { lang, image, no_copy, notify } => notifying(notify, "Glyphgrab", || {
             gate("glyphgrab", &caps)?;
             let path = match image {
                 Some(p) => p,
@@ -410,8 +450,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 bail!("No text found");
             }
             println!("{text}");
-            copy(&caps, &text, no_copy)
-        }
+            copy(&caps, &text, no_copy)?;
+            let preview: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(80).collect();
+            Ok(format!("Copied: {preview}"))
+        }),
         Cmd::Relabel { files, find, replace, regex, ignore_case, include_ext, template, start, apply } => {
             gate("relabel", &caps)?;
             let opts =
@@ -508,6 +550,21 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             gate("envy", &caps)?;
             envy_cmd(action.unwrap_or(EnvCmd::List), if system { envy::Scope::System } else { envy::Scope::User })
         }
+        Cmd::Update => {
+            use forgekit_core::update::{self, Outcome};
+            match update::check_now(env!("CARGO_PKG_VERSION"))? {
+                Outcome::UpToDate => println!("Forgekit {} is the latest version.", env!("CARGO_PKG_VERSION")),
+                Outcome::NoReleases => println!(
+                    "No releases published yet; you're on a development build ({}).",
+                    env!("CARGO_PKG_VERSION")
+                ),
+                Outcome::Available(r) => {
+                    println!("Forgekit {} is available (you have {}): {}", r.version, env!("CARGO_PKG_VERSION"), r.url)
+                }
+            }
+            Ok(())
+        }
+        Cmd::Shortcut { action } => shortcut_cmd(action.unwrap_or(ShortcutCmd::List), &caps),
         Cmd::Helper { action } => helper_cmd(action.unwrap_or(HelperCmd::Status)),
         Cmd::Keysmith { action } => {
             gate("keysmith", &caps)?;
@@ -535,9 +592,42 @@ fn block_on<T>(f: impl std::future::Future<Output = anyhow::Result<T>>) -> anyho
 
 fn copy(caps: &Capabilities, text: &str, skip: bool) -> anyhow::Result<()> {
     if !skip && !tools::copy_to_clipboard(caps, text)? {
-        eprintln!("(not copied: install wl-clipboard or xclip to copy automatically)");
+        bail!("not copied: start Forgekit's background service, or install wl-clipboard or xclip");
     }
     Ok(())
+}
+
+/// Run an action; with `notify`, report the outcome (or error) as a desktop notification.
+fn notifying(notify: bool, title: &str, f: impl FnOnce() -> anyhow::Result<String>) -> anyhow::Result<()> {
+    match f() {
+        Ok(msg) => {
+            if notify {
+                tools::notify(title, &msg);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if notify {
+                tools::notify(title, &format!("{e:#}"));
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Flip the daemon's keep-awake state. Returns whether it's now on.
+fn nightowl_toggle() -> anyhow::Result<bool> {
+    let conn = zbus::blocking::Connection::session()?;
+    let proxy =
+        zbus::blocking::Proxy::new(&conn, "org.forgekit.Daemon", "/org/forgekit/Daemon", "org.forgekit.Daemon1")?;
+    let on: bool =
+        proxy.get_property("NightowlActive").context("forgekitd isn't running (start it from Forgekit's Settings)")?;
+    if on {
+        proxy.call_method("NightowlStop", &())?;
+    } else {
+        proxy.call_method("NightowlStart", &("Forgekit Nightowl", 0u32))?;
+    }
+    Ok(!on)
 }
 
 fn app_path() -> Option<PathBuf> {
@@ -965,4 +1055,42 @@ fn umlaut_cmd(action: UmlautCmd) -> anyhow::Result<()> {
         }
     }
     apply_input(&cfg)
+}
+
+fn shortcut_cmd(action: ShortcutCmd, caps: &Capabilities) -> anyhow::Result<()> {
+    use forgekit_core::shortcuts;
+    let backend = shortcuts::backend(caps.desktop).context(
+        "this desktop isn't supported yet; bind the command from `forgekit status` in its keyboard settings",
+    )?;
+    match action {
+        ShortcutCmd::List => {
+            let mut any = false;
+            for t in CATALOG.iter().filter(|t| !t.is_planned()) {
+                if let Some(a) = shortcuts::get(backend, t.id) {
+                    println!("{:<12} {:<22} {}", t.name, a, shortcuts::action(t).label);
+                    any = true;
+                }
+            }
+            if !any {
+                println!("No Forgekit shortcuts yet. Example: forgekit shortcut set eyedrop super+shift+c");
+            }
+        }
+        ShortcutCmd::Set { tool, keys } => {
+            let t = catalog::find(&tool).with_context(|| format!("unknown tool '{tool}'"))?;
+            let accel = shortcuts::parse_accel(&keys)?;
+            let clashes = shortcuts::conflicts(backend, t.id, &accel);
+            if !clashes.is_empty() {
+                eprintln!("Note: also used by {}", clashes.join(", "));
+            }
+            let a = shortcuts::action(t);
+            shortcuts::set(backend, t.id, &a.label, &a.command, &accel)?;
+            println!("{accel} → {}", a.label);
+        }
+        ShortcutCmd::Remove { tool } => {
+            let t = catalog::find(&tool).with_context(|| format!("unknown tool '{tool}'"))?;
+            shortcuts::remove(backend, t.id)?;
+            println!("Removed.");
+        }
+    }
+    Ok(())
 }
