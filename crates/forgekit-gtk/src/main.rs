@@ -2,15 +2,20 @@
 //!
 //! `forgekit-gtk [tool]` opens the main window (on a tool's page),
 //! `forgekit-gtk --glance FILE` previews a file, and
-//! `forgekit-gtk --shelf [FILE…]` opens DropShelf. One instance handles all of
+//! `forgekit-gtk --shelf [FILE…]` opens DropShelf, and `--stage`,
+//! `--caliper` and `--cheatsheet` open those tools' windows. One instance handles all of
 //! them, so a second `--shelf FILE` adds to the shelf that's already open.
 
+mod caliper;
+mod cheatsheet;
+mod freeze;
 mod glance;
 mod home;
 mod pages;
 mod settings_page;
 mod shelf;
 mod shortcut;
+mod stage;
 mod theme;
 mod util;
 mod widgets;
@@ -50,6 +55,9 @@ fn main() -> glib::ExitCode {
                 shelf::open(app, args[1..].iter().filter(|a| !a.starts_with("--")).map(abs).collect(), auto)
             }
             Some("--shelf-dismiss") => shelf::dismiss(),
+            Some("--stage") => stage::open(app),
+            Some("--caliper") => caliper::open(app),
+            Some("--cheatsheet") => cheatsheet::open(app),
             first => {
                 let main = state.borrow_mut().get_or_insert_with(|| window::App::new(app)).clone();
                 if let Some(id) = first.and_then(forgekit_core::catalog::find).map(|t| t.id) {

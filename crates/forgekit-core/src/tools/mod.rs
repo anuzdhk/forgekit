@@ -1,3 +1,6 @@
+pub mod beacon;
+pub mod caliper;
+pub mod cheatsheet;
 pub mod clipstack;
 pub mod dusk;
 pub mod envy;
@@ -9,6 +12,7 @@ pub mod lockpick;
 pub mod mosaic;
 pub mod nightowl;
 pub mod relabel;
+pub mod screen;
 pub mod shelf;
 pub mod shrinkray;
 pub mod spark;

@@ -201,7 +201,7 @@ external: teku, tesseract, imagemagick/vips, xdg-desktop-portal
 | **v0.2 — Everyday** | **Clipstack** (X11, KDE, wlroots + GNOME extension), **DropShelf**, Glance, Envy, Dusk |
 | **v0.3 — Input** ✓ | Helper daemon, Keysmith, Umlaut (per-app rules and key sequences moved to later) |
 | **v0.4 — Windows** ✓ | Mosaic + Pin with GNOME and KDE backends (Hyprland/Sway and X11 later) |
-| **v0.5 — Presenting** | Stage, Beacon, Cheatsheet, Caliper |
+| **v0.5 — Presenting** ✓ | Stage, Beacon, Cheatsheet, Caliper (Stage and Caliper work on a frozen screenshot, so they run on any desktop) |
 | **v0.6+** | Scenes, Roam, Sweep, Bootpilot, Servicedeck, Settings Explorer, Flatpak Lite |
 
 ---

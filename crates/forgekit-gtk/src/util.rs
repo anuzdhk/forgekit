@@ -258,3 +258,53 @@ pub fn thumb_widget(t: &gdk::Texture, size: i32) -> gtk::Image {
     i.set_valign(gtk::Align::Center);
     i
 }
+
+/// Put a PNG on the clipboard. Through forgekitd when it runs (so it survives
+/// this window closing), otherwise through GTK.
+pub fn copy_png(png: &[u8]) -> bool {
+    let via_daemon = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).is_ok_and(|bus| {
+        bus.call_sync(
+            Some("org.forgekit.Daemon"),
+            "/org/forgekit/Clipstack",
+            "org.forgekit.Clipstack1",
+            "SetClip",
+            Some(&("image/png", png.to_vec()).to_variant()),
+            None,
+            gio::DBusCallFlags::NO_AUTO_START,
+            3000,
+            gio::Cancellable::NONE,
+        )
+        .is_ok()
+    });
+    if via_daemon {
+        return true;
+    }
+    match (gdk::Texture::from_bytes(&glib::Bytes::from(png)), gdk::Display::default()) {
+        (Ok(t), Some(d)) => {
+            d.clipboard().set_texture(&t);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Copy text so it survives this window closing (forgekitd), else via GTK.
+pub fn copy_lasting(text: &str) {
+    let via_daemon = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).is_ok_and(|bus| {
+        bus.call_sync(
+            Some("org.forgekit.Daemon"),
+            "/org/forgekit/Clipstack",
+            "org.forgekit.Clipstack1",
+            "SetText",
+            Some(&(text,).to_variant()),
+            None,
+            gio::DBusCallFlags::NO_AUTO_START,
+            3000,
+            gio::Cancellable::NONE,
+        )
+        .is_ok()
+    });
+    if !via_daemon {
+        copy(text);
+    }
+}

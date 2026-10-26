@@ -205,3 +205,24 @@ button.pill.fk-chip-toggle:checked:hover {
 
 /* Inline text buttons ("Add keyboard shortcut") */
 button.fk-link { padding: 2px 6px; min-height: 24px; color: var(--accent-color); font-weight: 600; }
+
+/* Stage and Caliper (fullscreen frozen screen) */
+window.fk-frozen, window.fk-frozen > * { background: black; }
+.fk-stage-bar {
+  background: rgba(20, 22, 28, 0.92);
+  color: white;
+  border-radius: 14px;
+  padding: 6px 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.fk-stage-bar button { color: white; min-width: 34px; min-height: 34px; }
+.fk-stage-bar button:checked { background: rgba(255, 255, 255, 0.18); }
+.fk-stage-bar separator { margin: 6px 4px; background: rgba(255, 255, 255, 0.2); }
+.fk-stage-bar .fk-swatch.selected { border-color: white; }
+.fk-stage-hint {
+  background: rgba(20, 22, 28, 0.85);
+  color: white;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-weight: 600;
+}

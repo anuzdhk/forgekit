@@ -123,6 +123,15 @@ impl Clipstack {
         Ok(())
     }
 
+    /// Put any clip (e.g. a PNG) on the clipboard; it stays after the caller exits.
+    async fn set_clip(&self, mime: String, data: Vec<u8>) -> fdo::Result<()> {
+        let guard = self.running.lock().unwrap();
+        let r = guard.as_ref().ok_or_else(|| failed("Clipstack isn't running"))?;
+        r.commands.send(Command::Set(clipstack::Clip { mime, data })).map_err(failed)?;
+        clipstack::wake(&r.wake);
+        Ok(())
+    }
+
     /// Record a clip from an outside source (e.g. a desktop extension).
     async fn add(
         &self,

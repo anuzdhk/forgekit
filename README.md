@@ -2,7 +2,7 @@
 
 All-in-one power tools for Linux. One app with a toggle per tool, every tool also on the command line, and honest detection: tools your desktop can't support are greyed out with a one-line reason.
 
-Status: **v0.4 (Windows)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog and roadmap.
+Status: **v0.5 (Presenting)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog and roadmap.
 
 ![Home](docs/screenshots/home.jpg)
 
@@ -30,6 +30,10 @@ Status: **v0.4 (Windows)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalo
 | Envy | `forgekit envy [list\|set KEY VALUE\|unset KEY] [--system]` | Your session's variables (`~/.config/environment.d`) or `/etc/environment` |
 | Keysmith | `forgekit keysmith [list\|add capslock ctrl\|add ctrl+h backspace\|add insert none\|remove N\|on\|off]` | Remap keys (also while held, e.g. CapsLock → Ctrl), turn shortcuts into others, or switch keys off |
 | Mosaic | `forgekit mosaic [status\|layouts\|layout thirds\|grid 3 2\|gap 8\|snap N]` | Window zones: Shift-drag a window onto a zone (GNOME), or a shortcut per zone (GNOME, KDE) |
+| Stage | `forgekit stage` | Freeze the screen, zoom in, and draw (pen, highlighter, line, arrow, box, ellipse), white/blackboard, copy or save |
+| Caliper | `forgekit caliper` | Measure on screen: hover for edge-to-edge distances, drag a box, click to copy |
+| Beacon | `forgekit beacon [find\|clicks on\|off]` | Find the pointer (or press Ctrl twice) and show click ripples (GNOME extension; KWin effects on KDE) |
+| Cheatsheet | `forgekit cheatsheet [--open] [search]` | Every keyboard shortcut your desktop has (GNOME, Cinnamon, KDE), searchable |
 | Pin | `forgekit pin` | Keep the focused window above others, with a colored border on GNOME |
 | Umlaut | `forgekit umlaut [status\|on\|off\|delay MS\|languages french,german]` | Hold a letter, tap Space or →/← to cycle é è ê ë…, release to keep. Shift for capitals |
 

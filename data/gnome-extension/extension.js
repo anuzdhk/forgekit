@@ -7,8 +7,10 @@
 //   Mosaic     Hold Shift while dragging a window to show zones; drop it into one.
 //              `Snap(n)` over D-Bus moves the focused window into zone n (keyboard shortcuts).
 //   Pin        `PinToggle()` keeps the focused window above others, with a colored border.
+//   Beacon     `FindCursor()` (or pressing Ctrl twice) rings the pointer; optional click ripples.
 // Settings come from ~/.config/forgekit/shell.json, written by the app. It talks to
-// nothing but the session bus, and only reads drag/window-move events.
+// nothing but the session bus, and only reads drag/window-move events and the pointer's
+// position and button/modifier state (never which keys are typed).
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -33,12 +35,14 @@ const DEFAULTS = {
     delay_ms: 350,
     mosaic: {zones: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]], gap: 8, shift_drag: true},
     pin: {border: true, color: '#3b82f6'},
+    beacon: {clicks: false, double_ctrl: true},
 };
 
 const IFACE = `<node>
   <interface name="org.forgekit.Shell1">
     <method name="PinToggle"><arg type="b" direction="out"/></method>
     <method name="Snap"><arg type="i" direction="in"/><arg type="b" direction="out"/></method>
+    <method name="FindCursor"/>
   </interface>
 </node>`;
 
@@ -67,6 +71,16 @@ export default class ForgekitExtension extends Extension {
         this._borders = new Map();
         this._overlay = null;
         this._pollId = 0;
+        this._beaconId = 0;
+        this._cfg = this._readConfig();
+        // Re-read the config whenever the app saves it.
+        const file = Gio.File.new_for_path(this._configPath());
+        this._monitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
+        this._monitorId = this._monitor.connect('changed', () => {
+            this._cfg = this._readConfig();
+            this._syncBeacon();
+        });
+        this._syncBeacon();
 
         this._signals = [
             [Main.xdndHandler, Main.xdndHandler.connect('drag-begin', () => this._onDragBegin())],
@@ -88,6 +102,12 @@ export default class ForgekitExtension extends Extension {
         this._dbus.unexport();
         this._dbus = null;
         Gio.bus_unown_name(this._nameId);
+        this._monitor.disconnect(this._monitorId);
+        this._monitor.cancel();
+        this._monitor = null;
+        if (this._beaconId)
+            GLib.source_remove(this._beaconId);
+        this._beaconId = 0;
         this._stopPolling();
         this._hideOverlay();
         for (const win of [...this._borders.keys()])
@@ -99,18 +119,30 @@ export default class ForgekitExtension extends Extension {
 
     // ---------------------------------------------------------------- helpers
 
-    _config() {
-        const path = GLib.build_filenamev([GLib.get_user_config_dir(), 'forgekit', 'shell.json']);
+    _configPath() {
+        return GLib.build_filenamev([GLib.get_user_config_dir(), 'forgekit', 'shell.json']);
+    }
+
+    _readConfig() {
         try {
-            const [ok, bytes] = GLib.file_get_contents(path);
+            const [ok, bytes] = GLib.file_get_contents(this._configPath());
             if (ok) {
                 const c = JSON.parse(new TextDecoder().decode(bytes));
-                return {...DEFAULTS, ...c, mosaic: {...DEFAULTS.mosaic, ...c.mosaic}, pin: {...DEFAULTS.pin, ...c.pin}};
+                return {
+                    ...DEFAULTS, ...c,
+                    mosaic: {...DEFAULTS.mosaic, ...c.mosaic},
+                    pin: {...DEFAULTS.pin, ...c.pin},
+                    beacon: {...DEFAULTS.beacon, ...c.beacon},
+                };
             }
         } catch (e) {
             // No config yet: the app hasn't been opened since installing.
         }
         return DEFAULTS;
+    }
+
+    _config() {
+        return this._cfg ?? DEFAULTS;
     }
 
     _later(ms, fn) {
@@ -305,6 +337,81 @@ export default class ForgekitExtension extends Extension {
     _hideOverlay() {
         this._overlay?.group.destroy();
         this._overlay = null;
+    }
+
+    // ---------------------------------------------------------------- Beacon
+
+    FindCursor() {
+        const [x, y] = global.get_pointer();
+        const color = this._config().pin.color;
+        // Two rings shrinking onto the pointer, the second a moment later.
+        for (const [size, delay] of [[320, 0], [200, 120]]) {
+            const ring = new St.Widget({
+                style: `border: 5px solid ${color}; border-radius: ${size / 2}px; background-color: ${rgba(color, 0.08)};`,
+                width: size, height: size, x: x - size / 2, y: y - size / 2,
+                reactive: false, opacity: 0,
+            });
+            ring.set_pivot_point(0.5, 0.5);
+            Main.layoutManager.uiGroup.add_child(ring);
+            ring.ease({
+                opacity: 255, duration: 120, delay,
+                onComplete: () => ring.ease({
+                    scale_x: 0.15, scale_y: 0.15, opacity: 0,
+                    duration: 650, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                    onComplete: () => ring.destroy(),
+                }),
+            });
+        }
+    }
+
+    _ripple(x, y, color) {
+        const size = 44;
+        const dot = new St.Widget({
+            style: `border: 3px solid ${color}; border-radius: ${size / 2}px; background-color: ${rgba(color, 0.25)};`,
+            width: size, height: size, x: x - size / 2, y: y - size / 2, reactive: false,
+        });
+        dot.set_pivot_point(0.5, 0.5);
+        Main.layoutManager.uiGroup.add_child(dot);
+        dot.ease({
+            scale_x: 2.2, scale_y: 2.2, opacity: 0, duration: 420,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => dot.destroy(),
+        });
+    }
+
+    /// Watch the pointer's buttons and modifier state only while a Beacon feature is on.
+    _syncBeacon() {
+        const b = this._config().beacon;
+        const want = b.clicks || b.double_ctrl;
+        if (want && !this._beaconId) {
+            let prev = 0;
+            let lastCtrl = 0;
+            this._beaconId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 25, () => {
+                const [x, y, mods] = global.get_pointer();
+                const cfg = this._config().beacon;
+                const down = m => (mods & m) && !(prev & m);
+                if (cfg.clicks) {
+                    if (down(Clutter.ModifierType.BUTTON1_MASK))
+                        this._ripple(x, y, this._config().pin.color);
+                    if (down(Clutter.ModifierType.BUTTON3_MASK))
+                        this._ripple(x, y, '#f97316');
+                }
+                if (cfg.double_ctrl && down(Clutter.ModifierType.CONTROL_MASK)) {
+                    const now = GLib.get_monotonic_time() / 1000;
+                    if (now - lastCtrl < 400) {
+                        lastCtrl = 0;
+                        this.FindCursor();
+                    } else {
+                        lastCtrl = now;
+                    }
+                }
+                prev = mods;
+                return GLib.SOURCE_CONTINUE;
+            });
+        } else if (!want && this._beaconId) {
+            GLib.source_remove(this._beaconId);
+            this._beaconId = 0;
+        }
     }
 
     // ---------------------------------------------------------------- DropShelf

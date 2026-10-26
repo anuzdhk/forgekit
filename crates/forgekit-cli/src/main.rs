@@ -178,6 +178,22 @@ enum Cmd {
     },
     /// Keep the focused window on top of others (toggle)
     Pin,
+    /// Zoom into and draw on your screen (opens fullscreen)
+    Stage,
+    /// Measure things on screen (opens fullscreen)
+    Caliper,
+    /// Find the mouse pointer, or turn click ripples on/off
+    Beacon {
+        #[command(subcommand)]
+        action: Option<BeaconCmd>,
+    },
+    /// List your desktop's keyboard shortcuts (`--open` for the window)
+    Cheatsheet {
+        #[arg(long)]
+        open: bool,
+        /// Only shortcuts matching this text
+        search: Option<String>,
+    },
     /// Check GitHub for a newer Forgekit release
     Update,
     /// Global keyboard shortcuts for tools (saved in your desktop's settings)
@@ -291,6 +307,14 @@ enum EnvCmd {
     Unset {
         key: String,
     },
+}
+
+#[derive(Subcommand)]
+enum BeaconCmd {
+    /// Highlight the pointer now
+    Find,
+    /// Ripples where you click
+    Clicks { state: OnOff },
 }
 
 #[derive(Subcommand)]
@@ -585,6 +609,49 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 Some(false) => println!("Unpinned."),
                 // KWin scripts can't report back; say what happened anyway.
                 None => tools::notify("Pin", "Toggled always-on-top for the focused window"),
+            }
+            Ok(())
+        }
+        Cmd::Stage => {
+            gate("stage", &caps)?;
+            exec_app(vec!["--stage".into()])
+        }
+        Cmd::Caliper => {
+            gate("caliper", &caps)?;
+            exec_app(vec!["--caliper".into()])
+        }
+        Cmd::Beacon { action } => {
+            use forgekit_core::tools::beacon;
+            gate("beacon", &caps)?;
+            let b = forgekit_core::desktop::backend(&caps).context("no backend for this desktop")?;
+            match action.unwrap_or(BeaconCmd::Find) {
+                BeaconCmd::Find => beacon::find(b),
+                BeaconCmd::Clicks { state } => {
+                    let mut s = beacon::Settings::load()?;
+                    s.clicks = matches!(state, OnOff::On);
+                    s.save()?;
+                    beacon::apply(b, &s)?;
+                    println!("Click ripples {}.", if s.clicks { "on" } else { "off" });
+                    Ok(())
+                }
+            }
+        }
+        Cmd::Cheatsheet { open, search } => {
+            gate("cheatsheet", &caps)?;
+            if open {
+                return exec_app(vec!["--cheatsheet".into()]);
+            }
+            let q = search.unwrap_or_default().to_lowercase();
+            let mut group = String::new();
+            for s in forgekit_core::tools::cheatsheet::collect(caps.desktop) {
+                if !q.is_empty() && !s.action.to_lowercase().contains(&q) && !s.keys.to_lowercase().contains(&q) {
+                    continue;
+                }
+                if s.group != group {
+                    println!("\n{}", s.group);
+                    group = s.group.clone();
+                }
+                println!("  {:<28} {}", s.keys, s.action);
             }
             Ok(())
         }

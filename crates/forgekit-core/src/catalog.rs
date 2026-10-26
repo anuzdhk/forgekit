@@ -79,7 +79,7 @@ pub struct Tool {
 }
 
 /// The release this build implements.
-pub const CURRENT: &str = "0.4";
+pub const CURRENT: &str = "0.5";
 
 impl Tool {
     /// Not in this build yet.
@@ -220,13 +220,14 @@ fn window_backend(c: &Capabilities) -> Status {
     }
 }
 
-fn overlay(c: &Capabilities) -> Status {
-    if c.session == Session::X11 || c.has_layer_shell() {
-        Status::Supported
-    } else if c.desktop == Desktop::Gnome {
-        Status::NeedsSetup("Enable the Forgekit GNOME Shell extension".into())
-    } else {
-        Status::Unsupported("Needs layer-shell, which this compositor lacks".into())
+fn beacon(c: &Capabilities) -> Status {
+    match c.desktop {
+        Desktop::Gnome if c.forgekit_shell => Status::Supported,
+        Desktop::Gnome => Status::NeedsSetup(
+            "Needs the Forgekit GNOME extension: install it from the Beacon page in Forgekit, then log out and back in once".into(),
+        ),
+        Desktop::Kde => Status::Supported,
+        _ => Status::Unsupported("Works on GNOME and KDE Plasma so far".into()),
     }
 }
 
@@ -372,12 +373,12 @@ pub static CATALOG: &[Tool] = &[
     tool!(
         "cheatsheet",
         "Cheatsheet",
-        Desktop,
+        Universal,
         Input,
         "keyboard-show",
         "0.5",
-        overlay,
-        "Overlay that shows keyboard shortcuts"
+        always,
+        "See every keyboard shortcut your desktop has"
     ),
     tool!(
         "mosaic",
@@ -401,8 +402,26 @@ pub static CATALOG: &[Tool] = &[
         "Launch and arrange a set of apps in one click"
     ),
     tool!("roam", "Roam", Desktop, Windows, "devices", "0.6", roam, "Share one mouse and keyboard across PCs"),
-    tool!("stage", "Stage", Desktop, Presenting, "presentation", "0.5", overlay, "Zoom, draw on screen and present"),
-    tool!("beacon", "Beacon", Desktop, Presenting, "pointer", "0.5", overlay, "Find and highlight the mouse cursor"),
+    tool!(
+        "stage",
+        "Stage",
+        Universal,
+        Presenting,
+        "presentation",
+        "0.5",
+        screenshot_portal,
+        "Zoom into and draw on your screen while presenting"
+    ),
+    tool!(
+        "beacon",
+        "Beacon",
+        Desktop,
+        Presenting,
+        "pointer",
+        "0.5",
+        beacon,
+        "Find the mouse pointer and show your clicks"
+    ),
     tool!(
         "caliper",
         "Caliper",
@@ -471,7 +490,7 @@ mod tests {
     #[test]
     fn future_tools_report_their_release() {
         let caps = Capabilities::detect();
-        let s = find("stage").unwrap().status(&caps);
-        assert_eq!(s, Status::Unsupported("Coming in v0.5".into()));
+        let s = find("scenes").unwrap().status(&caps);
+        assert_eq!(s, Status::Unsupported("Coming in v0.6".into()));
     }
 }

@@ -44,6 +44,10 @@ pub fn action(tool: &crate::Tool) -> Action {
         "nightowl" => ("Turn keep-awake on or off".into(), "forgekit", vec!["nightowl", "--toggle"]),
         "dusk" => ("Switch light/dark".into(), "forgekit", vec!["dusk", "toggle"]),
         "pin" => ("Pin the focused window on top".into(), "forgekit", vec!["pin"]),
+        "stage" => ("Zoom and draw on the screen".into(), "forgekit-gtk", vec!["--stage"]),
+        "caliper" => ("Measure on the screen".into(), "forgekit-gtk", vec!["--caliper"]),
+        "cheatsheet" => ("Show all keyboard shortcuts".into(), "forgekit-gtk", vec!["--cheatsheet"]),
+        "beacon" => ("Find the mouse pointer".into(), "forgekit", vec!["beacon", "find"]),
         id => (format!("Open {}", tool.name), "forgekit-gtk", vec![id]),
     };
     let mut command = shell_quote(&bin_path(bin).to_string_lossy());
@@ -272,6 +276,12 @@ impl Layout {
             .and_then(|v| quoted_strings(&v).pop())
             .unwrap_or_else(|| name.to_string())
     }
+}
+
+/// Every custom shortcut on the desktop (Forgekit's and the user's own) as (name, accelerator).
+pub fn list_custom(b: Backend) -> Vec<(String, String)> {
+    let l = layout(b);
+    l.entry_names().unwrap_or_default().into_iter().filter_map(|n| l.binding(&n).map(|a| (l.label(&n), a))).collect()
 }
 
 /// The accelerator currently bound to a tool, if any.

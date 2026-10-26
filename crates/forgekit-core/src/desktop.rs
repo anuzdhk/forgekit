@@ -130,6 +130,8 @@ pub fn write_config(app: Option<&str>) {
     let s = shelf::Settings::load().unwrap_or_default();
     let m = mosaic::Settings::load().unwrap_or_default();
     let p = mosaic::PinSettings::load().unwrap_or_default();
+    let b = crate::tools::beacon::Settings::load().unwrap_or_default();
+    let beacon_on = crate::settings::General::load().unwrap_or_default().is_enabled("beacon");
     let zones: Vec<[f64; 4]> = m.zones().iter().map(|z| [z.x, z.y, z.w, z.h]).collect();
     let v = json!({
         "app": app,
@@ -139,6 +141,8 @@ pub fn write_config(app: Option<&str>) {
         "delay_ms": 350,
         "mosaic": { "zones": zones, "gap": m.gap, "shift_drag": m.shift_drag },
         "pin": { "border": p.border, "color": p.color },
+        // Beacon watches the pointer only while the tool is switched on.
+        "beacon": { "clicks": beacon_on && b.clicks, "double_ctrl": beacon_on && b.double_ctrl },
     });
     let _ = std::fs::create_dir_all(crate::paths::config_dir());
     let _ = std::fs::write(config_file(), format!("{v:#}\n"));

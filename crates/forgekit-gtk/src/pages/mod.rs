@@ -3,6 +3,7 @@
 mod everyday;
 mod files;
 mod input;
+mod present;
 mod system;
 mod windows;
 
@@ -83,7 +84,7 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
     }
     if let Status::NeedsSetup(reason) = &status
         && tool.tier != forgekit_core::Tier::Helper
-        && !matches!(tool.id, "mosaic" | "pin")
+        && !matches!(tool.id, "mosaic" | "pin" | "beacon")
     {
         root.append(&setup_card(tool, reason, app));
     }
@@ -107,6 +108,10 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
         "keysmith" => input::keysmith(app),
         "mosaic" => windows::mosaic(app),
         "pin" => windows::pin(app),
+        "stage" => present::stage(app),
+        "caliper" => present::caliper(app),
+        "beacon" => present::beacon(app),
+        "cheatsheet" => present::cheatsheet(app),
         "umlaut" => input::umlaut(app),
         _ => Vec::new(),
     };
