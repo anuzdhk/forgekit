@@ -70,6 +70,16 @@ pub fn zone_action(n: usize) -> Action {
     }
 }
 
+/// A Forgekit binary's path, shell-quoted, for commands in shortcuts.
+pub fn bin_path_for(name: &str) -> String {
+    shell_quote(&bin_path(name).to_string_lossy())
+}
+
+/// Quote an argument for a shortcut's command line.
+pub fn quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 /// Prefer the binary next to the running program (a build folder or an
 /// install prefix), then `$PATH`.
 fn bin_path(name: &str) -> PathBuf {

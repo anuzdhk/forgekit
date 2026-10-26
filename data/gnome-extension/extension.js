@@ -8,6 +8,8 @@
 //              `Snap(n)` over D-Bus moves the focused window into zone n (keyboard shortcuts).
 //   Pin        `PinToggle()` keeps the focused window above others, with a colored border.
 //   Beacon     `FindCursor()` (or pressing Ctrl twice) rings the pointer; optional click ripples.
+//   Scenes     `ListWindows()` reports open app windows; `Place()` arranges windows of
+//              those apps, including ones that open in the next 30 seconds.
 // Settings come from ~/.config/forgekit/shell.json, written by the app. It talks to
 // nothing but the session bus, and only reads drag/window-move events and the pointer's
 // position and button/modifier state (never which keys are typed).
@@ -16,6 +18,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -43,6 +46,8 @@ const IFACE = `<node>
     <method name="PinToggle"><arg type="b" direction="out"/></method>
     <method name="Snap"><arg type="i" direction="in"/><arg type="b" direction="out"/></method>
     <method name="FindCursor"/>
+    <method name="ListWindows"><arg type="s" direction="out"/></method>
+    <method name="Place"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
   </interface>
 </node>`;
 
@@ -72,6 +77,7 @@ export default class ForgekitExtension extends Extension {
         this._overlay = null;
         this._pollId = 0;
         this._beaconId = 0;
+        this._pending = [];
         this._cfg = this._readConfig();
         // Re-read the config whenever the app saves it.
         const file = Gio.File.new_for_path(this._configPath());
@@ -453,16 +459,90 @@ export default class ForgekitExtension extends Extension {
     }
 
     _onWindowCreated(win) {
-        if (win.get_gtk_application_id?.() !== APP_ID)
+        const ours = win.get_gtk_application_id?.() === APP_ID;
+        this._pending = this._pending.filter(r => r.expires > Date.now());
+        if (!ours && this._pending.length === 0)
             return;
         const actor = win.get_compositor_private();
         if (!actor)
             return;
         const id = actor.connect('first-frame', () => {
             actor.disconnect(id);
-            if (win.get_title() === SHELF_TITLE)
+            if (ours && win.get_title() === SHELF_TITLE) {
                 this._placeShelf(win);
+                return;
+            }
+            const appId = Shell.WindowTracker.get_default().get_window_app(win)?.get_id() ?? '';
+            const i = this._pending.findIndex(r => r.app_id === appId);
+            if (i >= 0)
+                this._placeWin(win, this._pending.splice(i, 1)[0]);
         });
+    }
+
+    // ---------------------------------------------------------------- Scenes
+
+    _appWindows() {
+        return global.get_window_actors()
+            .map(a => a.get_meta_window())
+            .filter(w => w && !w.skip_taskbar && w.get_window_type() === Meta.WindowType.NORMAL);
+    }
+
+    ListWindows() {
+        const tracker = Shell.WindowTracker.get_default();
+        const out = this._appWindows().map(win => {
+            const app = tracker.get_window_app(win);
+            const monitor = win.get_monitor();
+            const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
+            const r = win.get_frame_rect();
+            return {
+                app_id: app?.get_id() ?? '',
+                name: app?.get_name() ?? win.get_title() ?? '',
+                monitor,
+                x: (r.x - area.x) / area.width,
+                y: (r.y - area.y) / area.height,
+                w: r.width / area.width,
+                h: r.height / area.height,
+                maximized: win.is_maximized(),
+            };
+        });
+        return JSON.stringify(out);
+    }
+
+    /// Arrange open windows of the scene's apps now; remember the rest for
+    /// 30 seconds so windows of apps that are starting get placed too.
+    /// Returns the app ids placed right away.
+    Place(json) {
+        const tracker = Shell.WindowTracker.get_default();
+        const used = new Set();
+        const placedNow = [];
+        const pending = [];
+        for (const rule of JSON.parse(json)) {
+            const win = this._appWindows().find(w => !used.has(w) && tracker.get_window_app(w)?.get_id() === rule.app_id);
+            if (win) {
+                used.add(win);
+                this._placeWin(win, rule);
+                placedNow.push(rule.app_id);
+            } else {
+                pending.push({...rule, expires: Date.now() + 30000});
+            }
+        }
+        this._pending = pending;
+        return JSON.stringify(placedNow);
+    }
+
+    _placeWin(win, rule) {
+        const monitor = rule.monitor < global.display.get_n_monitors() ? rule.monitor : Main.layoutManager.primaryIndex;
+        const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
+        if (win.is_maximized())
+            win.unmaximize();
+        const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+        const w = Math.round(clamp(rule.w, 0.1, 1) * area.width);
+        const h = Math.round(clamp(rule.h, 0.1, 1) * area.height);
+        const x = Math.round(area.x + clamp(rule.x, 0, 1) * area.width);
+        const y = Math.round(area.y + clamp(rule.y, 0, 1) * area.height);
+        win.move_resize_frame(true, x, y, w, h);
+        if (rule.maximized)
+            win.maximize();
     }
 
     _placeShelf(win) {

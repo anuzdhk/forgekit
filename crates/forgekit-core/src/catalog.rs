@@ -79,7 +79,7 @@ pub struct Tool {
 }
 
 /// The release this build implements.
-pub const CURRENT: &str = "0.5";
+pub const CURRENT: &str = "0.6";
 
 impl Tool {
     /// Not in this build yet.
@@ -231,11 +231,37 @@ fn beacon(c: &Capabilities) -> Status {
     }
 }
 
-fn roam(c: &Capabilities) -> Status {
-    if c.session == Session::X11 || (c.portal("InputCapture").is_some() && c.portal("RemoteDesktop").is_some()) {
+fn roam(_: &Capabilities) -> Status {
+    if crate::tools::roam::find().is_some() {
         Status::Supported
     } else {
-        Status::Unsupported("Needs the InputCapture and RemoteDesktop portals".into())
+        Status::NeedsSetup("Uses Deskflow: install it with one click on the Roam page".into())
+    }
+}
+
+fn scenes(c: &Capabilities) -> Status {
+    match c.desktop {
+        Desktop::Gnome if c.forgekit_shell => Status::Supported,
+        Desktop::Gnome => Status::NeedsSetup(
+            "Needs the Forgekit GNOME extension: install it from the Scenes page, then log out and back in once".into(),
+        ),
+        _ => Status::Unsupported("Works on GNOME so far".into()),
+    }
+}
+
+fn servicedeck(_: &Capabilities) -> Status {
+    if std::path::Path::new("/run/systemd/system").exists() {
+        Status::Supported
+    } else {
+        Status::Unsupported("Needs systemd".into())
+    }
+}
+
+fn settings_explorer(_: &Capabilities) -> Status {
+    if crate::paths::which("gsettings").is_some() {
+        Status::Supported
+    } else {
+        Status::Unsupported("Needs GSettings (GNOME, Cinnamon, Budgie and similar desktops)".into())
     }
 }
 
@@ -398,8 +424,8 @@ pub static CATALOG: &[Tool] = &[
         Windows,
         "layout-board-split",
         "0.6",
-        window_backend,
-        "Launch and arrange a set of apps in one click"
+        scenes,
+        "Save how your apps are arranged and restore it in one click"
     ),
     tool!("roam", "Roam", Desktop, Windows, "devices", "0.6", roam, "Share one mouse and keyboard across PCs"),
     tool!(
@@ -450,7 +476,7 @@ pub static CATALOG: &[Tool] = &[
         "rocket",
         "0.6",
         always,
-        "Manage startup apps and systemd user units"
+        "Choose which apps and services start when you log in"
     ),
     tool!(
         "servicedeck",
@@ -459,7 +485,7 @@ pub static CATALOG: &[Tool] = &[
         Extras,
         "server-cog",
         "0.6",
-        always,
+        servicedeck,
         "Start, stop and inspect systemd services"
     ),
     tool!(
@@ -469,8 +495,8 @@ pub static CATALOG: &[Tool] = &[
         Extras,
         "adjustments-horizontal",
         "0.6",
-        always,
-        "Browse dconf/gsettings and KDE config"
+        settings_explorer,
+        "Search, change and reset every GNOME setting, hidden ones too"
     ),
 ];
 
@@ -488,9 +514,8 @@ mod tests {
     }
 
     #[test]
-    fn future_tools_report_their_release() {
-        let caps = Capabilities::detect();
-        let s = find("scenes").unwrap().status(&caps);
-        assert_eq!(s, Status::Unsupported("Coming in v0.6".into()));
+    fn every_planned_tool_has_shipped() {
+        assert!(CATALOG.iter().all(|t| !t.is_planned()));
+        assert!(version_key("0.10") > version_key("0.9"));
     }
 }

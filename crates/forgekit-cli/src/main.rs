@@ -194,6 +194,40 @@ enum Cmd {
         /// Only shortcuts matching this text
         search: Option<String>,
     },
+    /// See and clean caches, old packages, logs and trash
+    Sweep {
+        /// Clean these (package-cache, unused-flatpaks, old-snaps, system-logs, thumbnails, app-caches, trash)
+        #[arg(long, value_delimiter = ',')]
+        clean: Vec<String>,
+    },
+    /// Apps and services that start when you log in
+    Bootpilot {
+        #[command(subcommand)]
+        action: Option<BootCmd>,
+    },
+    /// systemd services: list, start/stop/restart, enable/disable, logs
+    Services {
+        #[command(subcommand)]
+        action: Option<SvcCmd>,
+        /// Your user services instead of system ones
+        #[arg(long, global = true)]
+        user: bool,
+    },
+    /// Search and change GNOME settings (GSettings)
+    Settings {
+        #[command(subcommand)]
+        action: SetCmd,
+    },
+    /// Save and restore window arrangements
+    Scenes {
+        #[command(subcommand)]
+        action: Option<SceneCmd>,
+    },
+    /// One mouse and keyboard across PCs (via Deskflow)
+    Roam {
+        #[command(subcommand)]
+        action: Option<RoamCmd>,
+    },
     /// Check GitHub for a newer Forgekit release
     Update,
     /// Global keyboard shortcuts for tools (saved in your desktop's settings)
@@ -307,6 +341,98 @@ enum EnvCmd {
     Unset {
         key: String,
     },
+}
+
+#[derive(Subcommand)]
+enum BootCmd {
+    List,
+    On {
+        id: String,
+    },
+    Off {
+        id: String,
+    },
+    /// Start an app at login, e.g. `add /usr/share/applications/org.gnome.Calendar.desktop`
+    Add {
+        launcher: PathBuf,
+    },
+    Remove {
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SvcCmd {
+    /// Services (add --failed to see only failed ones)
+    List {
+        #[arg(long)]
+        failed: bool,
+    },
+    Start {
+        unit: String,
+    },
+    Stop {
+        unit: String,
+    },
+    Restart {
+        unit: String,
+    },
+    Enable {
+        unit: String,
+    },
+    Disable {
+        unit: String,
+    },
+    Logs {
+        unit: String,
+        #[arg(long, short, default_value_t = 50)]
+        lines: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum SetCmd {
+    /// Find settings by name, schema or value
+    Search {
+        text: String,
+        #[arg(long)]
+        changed: bool,
+    },
+    Get {
+        schema: String,
+        key: String,
+    },
+    Set {
+        schema: String,
+        key: String,
+        value: String,
+    },
+    Reset {
+        schema: String,
+        key: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SceneCmd {
+    List,
+    /// Save the windows open now
+    Save {
+        name: String,
+    },
+    Restore {
+        name: String,
+    },
+    Delete {
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RoamCmd {
+    Status,
+    Open,
+    Install,
 }
 
 #[derive(Subcommand)]
@@ -654,6 +780,173 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 println!("  {:<28} {}", s.keys, s.action);
             }
             Ok(())
+        }
+        Cmd::Sweep { clean } => {
+            use forgekit_core::tools::{glance::human_size, sweep};
+            gate("sweep", &caps)?;
+            let items = sweep::scan();
+            if clean.is_empty() {
+                for i in &items {
+                    let size = i.size.map(human_size).unwrap_or_else(|| "—".into());
+                    let id = serde_json::to_value(i.kind)?.as_str().unwrap_or_default().to_string();
+                    println!("{id:<16} {size:>9}  {}{}", i.title, if i.root { " (password)" } else { "" });
+                }
+                println!("\nClean with e.g.: forgekit sweep --clean package-cache,thumbnails");
+                return Ok(());
+            }
+            let kinds: Vec<sweep::Kind> = items
+                .iter()
+                .map(|i| i.kind)
+                .filter(|k| {
+                    serde_json::to_value(k)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .is_some_and(|id| clean.contains(&id))
+                })
+                .collect();
+            anyhow::ensure!(!kinds.is_empty(), "nothing matched; see `forgekit sweep` for names");
+            for line in sweep::clean(&kinds)? {
+                println!("{line}");
+            }
+            Ok(())
+        }
+        Cmd::Bootpilot { action } => {
+            use forgekit_core::tools::bootpilot;
+            gate("bootpilot", &caps)?;
+            match action.unwrap_or(BootCmd::List) {
+                BootCmd::List => {
+                    for e in bootpilot::list() {
+                        let state = if e.other_desktop {
+                            "n/a"
+                        } else if e.enabled {
+                            "on"
+                        } else {
+                            "off"
+                        };
+                        println!("[{state:<3}] {:<40} {}", e.id, e.name);
+                    }
+                    for s in bootpilot::user_services() {
+                        println!("[{:<3}] {:<40} (user service)", if s.enabled { "on" } else { "off" }, s.unit);
+                    }
+                    Ok(())
+                }
+                BootCmd::On { id } => bootpilot::set_enabled(&id, true),
+                BootCmd::Off { id } => bootpilot::set_enabled(&id, false),
+                BootCmd::Add { launcher } => bootpilot::add(&launcher).map(|id| println!("Added {id}")),
+                BootCmd::Remove { id } => bootpilot::remove(&id),
+            }
+        }
+        Cmd::Services { action, user } => {
+            use forgekit_core::tools::servicedeck::{self as sd, Action, Scope};
+            gate("servicedeck", &caps)?;
+            let scope = if user { Scope::User } else { Scope::System };
+            let act = |a: Action, u: &str| sd::run_cli(scope, a, u);
+            match action.unwrap_or(SvcCmd::List { failed: false }) {
+                SvcCmd::List { failed } => {
+                    for s in sd::list(scope)?.into_iter().filter(|s| !failed || s.active == "failed") {
+                        println!("{:<9} {:<9} {:<44} {}", s.active, s.file_state, s.unit, s.description);
+                    }
+                    Ok(())
+                }
+                SvcCmd::Start { unit } => act(Action::Start, &unit),
+                SvcCmd::Stop { unit } => act(Action::Stop, &unit),
+                SvcCmd::Restart { unit } => act(Action::Restart, &unit),
+                SvcCmd::Enable { unit } => act(Action::Enable, &unit),
+                SvcCmd::Disable { unit } => act(Action::Disable, &unit),
+                SvcCmd::Logs { unit, lines } => {
+                    print!("{}", sd::logs(scope, &unit, lines)?);
+                    Ok(())
+                }
+            }
+        }
+        Cmd::Settings { action } => {
+            use forgekit_core::tools::settings_explorer as se;
+            gate("settings-explorer", &caps)?;
+            match action {
+                SetCmd::Search { text, changed } => {
+                    let q = text.to_lowercase();
+                    for k in se::all()?.into_iter().filter(|k| !changed || k.modified).filter(|k| {
+                        k.key.contains(&q)
+                            || k.schema.to_lowercase().contains(&q)
+                            || k.value.to_lowercase().contains(&q)
+                    }) {
+                        println!("{}{} {} = {}", if k.modified { "* " } else { "  " }, k.schema, k.key, k.value);
+                    }
+                    Ok(())
+                }
+                SetCmd::Get { schema, key } => se::get(&schema, &key).map(|v| println!("{v}")),
+                SetCmd::Set { schema, key, value } => se::set(&schema, &key, &value),
+                SetCmd::Reset { schema, key } => se::reset(&schema, &key),
+            }
+        }
+        Cmd::Scenes { action } => {
+            use forgekit_core::tools::scenes;
+            gate("scenes", &caps)?;
+            let mut all = scenes::load();
+            match action.unwrap_or(SceneCmd::List) {
+                SceneCmd::List => {
+                    if all.is_empty() {
+                        println!("No scenes yet. Arrange your windows, then: forgekit scenes save NAME");
+                    }
+                    for s in all {
+                        println!(
+                            "{}: {}",
+                            s.name,
+                            s.items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", ")
+                        );
+                    }
+                    Ok(())
+                }
+                SceneCmd::Save { name } => {
+                    let scene = scenes::capture(&name)?;
+                    println!("Saved “{name}” with {} window(s).", scene.items.len());
+                    all.retain(|s| s.name != name);
+                    all.push(scene);
+                    scenes::save(&all)
+                }
+                SceneCmd::Restore { name } => {
+                    let scene =
+                        all.into_iter().find(|s| s.name == name).with_context(|| format!("no scene named “{name}”"))?;
+                    let missing = scenes::restore(&scene)?;
+                    if !missing.is_empty() {
+                        eprintln!("Couldn't start: {}", missing.join(", "));
+                    }
+                    Ok(())
+                }
+                SceneCmd::Delete { name } => {
+                    let before = all.len();
+                    all.retain(|s| s.name != name);
+                    anyhow::ensure!(all.len() < before, "no scene named “{name}”");
+                    scenes::save(&all)
+                }
+            }
+        }
+        Cmd::Roam { action } => {
+            use forgekit_core::tools::roam;
+            match action.unwrap_or(RoamCmd::Status) {
+                RoamCmd::Status => {
+                    match roam::find() {
+                        Some(f) => println!("{} is installed. Open it with: forgekit roam open", f.name),
+                        None => println!(
+                            "Roam uses Deskflow, which isn't installed. Install it with: forgekit roam install"
+                        ),
+                    }
+                    Ok(())
+                }
+                RoamCmd::Open => {
+                    roam::launch(&roam::find().context("Deskflow isn't installed (forgekit roam install)")?)
+                }
+                RoamCmd::Install => {
+                    roam::ensure_flathub()?;
+                    let cmd = roam::install_command()?;
+                    anyhow::ensure!(
+                        std::process::Command::new(&cmd[0]).args(&cmd[1..]).status()?.success(),
+                        "install didn't finish"
+                    );
+                    println!("Deskflow installed. Open it with: forgekit roam open");
+                    Ok(())
+                }
+            }
         }
         Cmd::Update => {
             use forgekit_core::update::{self, Outcome};

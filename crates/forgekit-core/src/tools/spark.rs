@@ -130,6 +130,9 @@ pub struct App {
     /// Exec line with field codes removed.
     pub exec: String,
     pub terminal: bool,
+    /// The launcher file.
+    #[serde(skip)]
+    pub path: PathBuf,
 }
 
 impl App {
@@ -182,7 +185,9 @@ pub fn load_apps() -> Vec<App> {
                 if !seen.insert(id.clone()) {
                     continue;
                 }
-                if let Some(app) = std::fs::read_to_string(&p).ok().and_then(|t| parse_desktop(&id, &t, &desktops)) {
+                if let Some(mut app) = std::fs::read_to_string(&p).ok().and_then(|t| parse_desktop(&id, &t, &desktops))
+                {
+                    app.path = p;
                     apps.push(app);
                 }
             }
@@ -231,6 +236,7 @@ pub fn parse_desktop(id: &str, text: &str, desktops: &[String]) -> Option<App> {
         icon: val("Icon"),
         exec,
         terminal: val("Terminal") == "true",
+        path: PathBuf::new(),
     })
 }
 
@@ -520,6 +526,7 @@ mod tests {
             icon: String::new(),
             exec: n.into(),
             terminal: false,
+            path: PathBuf::new(),
         };
         let apps = vec![app("Firefox"), app("GNOME Files"), app("Fire Starter")];
         let r = query("fi", &apps);

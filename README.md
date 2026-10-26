@@ -2,7 +2,7 @@
 
 All-in-one power tools for Linux. One app with a toggle per tool, every tool also on the command line, and honest detection: tools your desktop can't support are greyed out with a one-line reason.
 
-Status: **v0.5 (Presenting)**. See [docs/PLAN.md](docs/PLAN.md) for the full catalog and roadmap.
+Status: **v0.6**: every tool in the plan is in. See [docs/PLAN.md](docs/PLAN.md) for the full catalog and roadmap.
 
 ![Home](docs/screenshots/home.jpg)
 
@@ -34,6 +34,12 @@ Status: **v0.5 (Presenting)**. See [docs/PLAN.md](docs/PLAN.md) for the full cat
 | Caliper | `forgekit caliper` | Measure on screen: hover for edge-to-edge distances, drag a box, click to copy |
 | Beacon | `forgekit beacon [find\|clicks on\|off]` | Find the pointer (or press Ctrl twice) and show click ripples (GNOME extension; KWin effects on KDE) |
 | Cheatsheet | `forgekit cheatsheet [--open] [search]` | Every keyboard shortcut your desktop has (GNOME, Cinnamon, KDE), searchable |
+| Scenes | `forgekit scenes [list\|save NAME\|restore NAME\|delete NAME]` | Save which apps are open and where (monitor, position), then restore it all in one click (GNOME extension) |
+| Roam | `forgekit roam [status\|install\|open]` | One mouse and keyboard across PCs, via Deskflow (set up and launched by Forgekit) |
+| Sweep | `forgekit sweep [--clean package-cache,thumbnails,…]` | Shows reclaimable space (package cache, unused Flatpaks, old Snaps, logs, thumbnails, caches, trash) and cleans what you pick; root work in one password prompt |
+| Bootpilot | `forgekit bootpilot [list\|on ID\|off ID\|add LAUNCHER\|remove ID]` | Login apps (XDG autostart) and your systemd user services |
+| Servicedeck | `forgekit services [list\|start\|stop\|restart\|enable\|disable\|logs UNIT] [--user]` | systemd services with status, actions and recent logs |
+| Settings Explorer | `forgekit settings [search TEXT\|get\|set\|reset SCHEMA KEY]` | Every GSettings key, what you've changed, edit and reset |
 | Pin | `forgekit pin` | Keep the focused window above others, with a colored border on GNOME |
 | Umlaut | `forgekit umlaut [status\|on\|off\|delay MS\|languages french,german]` | Hold a letter, tap Space or →/← to cycle é è ê ë…, release to keep. Shift for capitals |
 

@@ -1,4 +1,5 @@
 pub mod beacon;
+pub mod bootpilot;
 pub mod caliper;
 pub mod cheatsheet;
 pub mod clipstack;
@@ -12,10 +13,15 @@ pub mod lockpick;
 pub mod mosaic;
 pub mod nightowl;
 pub mod relabel;
+pub mod roam;
+pub mod scenes;
 pub mod screen;
+pub mod servicedeck;
+pub mod settings_explorer;
 pub mod shelf;
 pub mod shrinkray;
 pub mod spark;
+pub mod sweep;
 pub mod teku;
 
 use std::io::Write;
