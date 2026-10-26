@@ -29,6 +29,9 @@ use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 
 pub const APP_ID: &str = "io.github.anuzdhk.Forgekit";
+/// Above GTK's per-user stylesheet (~/.config/gtk-4.0/gtk.css, where system
+/// themes like WhiteSur install themselves), so Forgekit keeps its own look.
+const BASE_PRIORITY: u32 = gtk::STYLE_PROVIDER_PRIORITY_USER + 1;
 const RESOURCES: &str = "/io/github/anuzdhk/Forgekit";
 
 fn main() -> glib::ExitCode {
@@ -93,7 +96,7 @@ fn setup_display() {
     gtk::IconTheme::for_display(&display).add_resource_path(&format!("{RESOURCES}/icons"));
     let base = gtk::CssProvider::new();
     base.load_from_resource(&format!("{RESOURCES}/style.css"));
-    gtk::style_context_add_provider_for_display(&display, &base, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    gtk::style_context_add_provider_for_display(&display, &base, BASE_PRIORITY);
     apply_theme(&theme::Appearance::load());
     // Keep the desktop extension pointed at this copy of the app.
     if forgekit_core::desktop::state() != forgekit_core::desktop::State::NotInstalled {
@@ -119,7 +122,7 @@ pub fn apply_theme(a: &theme::Appearance) {
     THEME_CSS.with(|p| {
         p.load_from_string(&theme::css(t, a));
         if let Some(display) = gdk::Display::default() {
-            gtk::style_context_add_provider_for_display(&display, p, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+            gtk::style_context_add_provider_for_display(&display, p, BASE_PRIORITY + 1);
         }
     });
 }
