@@ -722,19 +722,19 @@ export default class ForgekitExtension extends Extension {
         this._later(1500, () => this._spawn([cfg.app, '--shelf-dismiss']));
     }
 
+    /// Forgekit's window, by its app id. GTK 4 on Wayland reports that only as
+    /// the window class, and may set it after the window is created.
+    _isOurs(win) {
+        return win.get_wm_class() === APP_ID || win.get_gtk_application_id?.() === APP_ID;
+    }
+
     _onWindowCreated(win) {
-        const ours = win.get_gtk_application_id?.() === APP_ID;
+        if (win.get_window_type() !== Meta.WindowType.NORMAL)
+            return;
         this._pending = this._pending.filter(r => r.expires > Date.now());
-        if (!ours && this._pending.length === 0)
-            return;
-        const actor = win.get_compositor_private();
-        if (!actor)
-            return;
-        const id = actor.connect('first-frame', () => {
-            actor.disconnect(id);
-            const title = ours ? win.get_title() : null;
+        const place = () => {
+            const title = this._isOurs(win) ? win.get_title() : null;
             if (title === SHELF_TITLE) {
-                // Opened from the top-bar icon: drop down below it.
                 // From the top bar (or a shortcut): below the logo. From a drag: the corner.
                 if (this._button && !this._shownByDrag)
                     this._placeBelow(win, this._button);
@@ -746,11 +746,26 @@ export default class ForgekitExtension extends Extension {
                 this._placeCentered(win, title === SPARK_TITLE ? 0.12 : 0.08);
                 return;
             }
+            if (this._pending.length === 0)
+                return;
             const appId = Shell.WindowTracker.get_default().get_window_app(win)?.get_id() ?? '';
             const i = this._pending.findIndex(r => r.app_id === appId);
             if (i >= 0)
                 this._placeWin(win, this._pending.splice(i, 1)[0]);
-        });
+        };
+        // Place it once it has a size, before (or as) it first shows.
+        const actor = win.get_compositor_private();
+        if (actor) {
+            const id = actor.connect('first-frame', () => {
+                actor.disconnect(id);
+                place();
+            });
+        } else {
+            const id = win.connect('shown', () => {
+                win.disconnect(id);
+                place();
+            });
+        }
     }
 
     // ---------------------------------------------------------------- Scenes
