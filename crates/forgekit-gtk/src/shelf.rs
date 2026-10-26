@@ -65,12 +65,12 @@ pub fn dismiss() {
 fn build(app: &adw::Application) -> Rc<ShelfWin> {
     let window = adw::ApplicationWindow::builder()
         .application(app)
-        .title("DropShelf")
+        .title("Bundle")
         .default_width(340)
         .default_height(440)
         .build();
     let header =
-        adw::HeaderBar::builder().title_widget(&adw::WindowTitle::new("DropShelf", "Drop now, drag out later")).build();
+        adw::HeaderBar::builder().title_widget(&adw::WindowTitle::new("Bundle", "Drop now, drag out later")).build();
     let clear = w::icon_button("trash", "Clear shelf");
     header.pack_start(&clear);
 

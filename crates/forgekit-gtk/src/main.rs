@@ -2,20 +2,20 @@
 //!
 //! `forgekit-gtk [tool]` opens the main window (on a tool's page),
 //! `forgekit-gtk --glance FILE` previews a file, and
-//! `forgekit-gtk --shelf [FILE…]` opens DropShelf, and `--stage`,
-//! `--caliper` and `--cheatsheet` open those tools' windows. One instance handles all of
+//! `forgekit-gtk --shelf [FILE…]` opens Bundle, `--spark` the search bar,
+//! `--clipboard` the clipboard pop-up and `--cheatsheet` the shortcut sheet. One instance handles all of
 //! them, so a second `--shelf FILE` adds to the shelf that's already open.
 
-mod caliper;
 mod cheatsheet;
-mod freeze;
+mod clipboard;
 mod glance;
 mod home;
 mod pages;
+mod previewer;
 mod settings_page;
 mod shelf;
 mod shortcut;
-mod stage;
+mod spark;
 mod theme;
 mod util;
 mod widgets;
@@ -50,17 +50,22 @@ fn main() -> glib::ExitCode {
         };
         match args.first().map(String::as_str) {
             Some("--glance") => match args.get(1) {
-                Some(f) => glance::open(app, &abs(f)),
+                Some(f) => {
+                    if !glance::open(app, &abs(f)) {
+                        eprintln!("Glance previews pictures and documents; {f} isn't one");
+                    }
+                }
                 None => eprintln!("usage: forgekit-gtk --glance FILE"),
             },
+            Some("--previewer") => previewer::serve(app),
             Some("--shelf") => {
                 let auto = args.iter().any(|a| a == "--auto");
                 shelf::open(app, args[1..].iter().filter(|a| !a.starts_with("--")).map(abs).collect(), auto)
             }
             Some("--shelf-dismiss") => shelf::dismiss(),
-            Some("--stage") => stage::open(app),
-            Some("--caliper") => caliper::open(app),
             Some("--cheatsheet") => cheatsheet::open(app),
+            Some("--spark") => spark::toggle(app),
+            Some("--clipboard") => clipboard::toggle(app),
             first => {
                 let main = state.borrow_mut().get_or_insert_with(|| window::App::new(app)).clone();
                 if let Some(id) = first.and_then(forgekit_core::catalog::find).map(|t| t.id) {
@@ -103,6 +108,36 @@ fn setup_display() {
     // Keep the desktop extension pointed at this copy of the app.
     if forgekit_core::desktop::state() != forgekit_core::desktop::State::NotInstalled {
         forgekit_core::desktop::write_config(Some(&app_path()));
+    }
+    sync_previewer();
+    std::thread::spawn(first_run);
+}
+
+/// Once per user: clipboard history runs from login, and Spark and the
+/// clipboard get their usual keys (Super+Space, Super+V).
+fn first_run() {
+    use forgekit_core::shortcuts;
+    if shortcuts::first_time("daemon-autostart") {
+        let _ = settings_page::set_autostart(true);
+        if !settings_page::daemon_running() {
+            let _ = settings_page::start_daemon();
+        }
+    }
+    let caps = forgekit_core::Capabilities::detect();
+    if let Some(b) = shortcuts::backend(caps.desktop) {
+        let set = shortcuts::apply_defaults(b);
+        if !set.is_empty() {
+            forgekit_core::tools::notify("Forgekit shortcuts are ready", &set.join("\n"));
+        }
+    }
+}
+
+/// Space in GNOME Files opens Glance while the tool is on.
+pub fn sync_previewer() {
+    let on = forgekit_core::settings::General::load().unwrap_or_default().is_enabled("glance");
+    let app = app_path();
+    if let Err(e) = forgekit_core::tools::glance::set_previewer(on.then_some(app.as_str())) {
+        eprintln!("glance: {e:#}");
     }
 }
 

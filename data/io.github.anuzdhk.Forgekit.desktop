@@ -14,7 +14,7 @@ Name=Spark launcher
 Exec=forgekit-gtk spark
 
 [Desktop Action shelf]
-Name=Open DropShelf
+Name=Open Bundle
 Exec=forgekit-gtk --shelf
 
 [Desktop Action clipstack]

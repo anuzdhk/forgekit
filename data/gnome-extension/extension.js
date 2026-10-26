@@ -2,17 +2,21 @@
 //
 // GNOME doesn't let apps see drags, move other windows or keep them on top,
 // so this extension does those few things for the Forgekit app:
-//   DropShelf  When you start dragging files, open the shelf (`forgekit-gtk --shelf --auto`)
+//   Clipboard  A top-bar icon whose menu lists clipboard history (from forgekitd);
+//              `OpenClipboard()` drops it down from a keyboard shortcut. Picking an item
+//              copies it and pastes it into the window you were in.
+//   Bundle     When you start dragging files, open Bundle (`forgekit-gtk --shelf --auto`)
 //              in your chosen corner, and close it if nothing gets dropped on it.
-//   Mosaic     Hold Shift while dragging a window to show zones; drop it into one.
+//   Mosaic     Hold Shift while dragging a window to show zones; drop it into one. Drag it
+//              to the top middle of the screen for a picker with every layout instead.
 //              `Snap(n)` over D-Bus moves the focused window into zone n (keyboard shortcuts).
 //   Pin        `PinToggle()` keeps the focused window above others, with a colored border.
-//   Beacon     `FindCursor()` (or pressing Ctrl twice) rings the pointer; optional click ripples.
+//   Spark      Puts the search bar in the top middle of the screen.
 //   Scenes     `ListWindows()` reports open app windows; `Place()` arranges windows of
 //              those apps, including ones that open in the next 30 seconds.
 // Settings come from ~/.config/forgekit/shell.json, written by the app. It talks to
 // nothing but the session bus, and only reads drag/window-move events and the pointer's
-// position and button/modifier state (never which keys are typed).
+// position and Shift state while you move a window (never which keys are typed).
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -21,10 +25,24 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const APP_ID = 'io.github.anuzdhk.Forgekit';
-const SHELF_TITLE = 'DropShelf';
+const SHELF_TITLE = 'Bundle';
+const SPARK_TITLE = 'Spark';
+const CLIP_TITLE = 'Clipboard';
+const DAEMON = 'org.forgekit.Daemon';
+const CLIP_PATH = '/org/forgekit/Clipstack';
+const CLIP_IFACE = 'org.forgekit.Clipstack1';
+const CLIP_ITEMS = 30;
+// Layout picker tiles, in pixels.
+const TILE_W = 104;
+const TILE_H = 64;
+const TILE_GAP = 10;
+const FLY_PAD = 14;
+const FLY_LABEL = 26;
 const BUS_NAME = 'org.forgekit.Shell';
 const MARGIN = 16;
 const BORDER = 3;
@@ -36,16 +54,16 @@ const DEFAULTS = {
     files_only: true,
     corner: 'bottom-right',
     delay_ms: 350,
-    mosaic: {zones: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]], gap: 8, shift_drag: true},
+    mosaic: {zones: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]], layouts: [], gap: 8, shift_drag: true},
     pin: {border: true, color: '#b4ff96'},
-    beacon: {clicks: false, double_ctrl: true},
+    clipboard: {panel: false, paste: true},
 };
 
 const IFACE = `<node>
   <interface name="org.forgekit.Shell1">
     <method name="PinToggle"><arg type="b" direction="out"/></method>
     <method name="Snap"><arg type="i" direction="in"/><arg type="b" direction="out"/></method>
-    <method name="FindCursor"/>
+    <method name="OpenClipboard"/>
     <method name="ListWindows"><arg type="s" direction="out"/></method>
     <method name="Place"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
   </interface>
@@ -76,7 +94,8 @@ export default class ForgekitExtension extends Extension {
         this._borders = new Map();
         this._overlay = null;
         this._pollId = 0;
-        this._beaconId = 0;
+        this._flyout = null;
+        this._clip = null;
         this._pending = [];
         this._cfg = this._readConfig();
         // Re-read the config whenever the app saves it.
@@ -84,9 +103,9 @@ export default class ForgekitExtension extends Extension {
         this._monitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
         this._monitorId = this._monitor.connect('changed', () => {
             this._cfg = this._readConfig();
-            this._syncBeacon();
+            this._syncClipboard();
         });
-        this._syncBeacon();
+        this._syncClipboard();
 
         this._signals = [
             [Main.xdndHandler, Main.xdndHandler.connect('drag-begin', () => this._onDragBegin())],
@@ -111,11 +130,13 @@ export default class ForgekitExtension extends Extension {
         this._monitor.disconnect(this._monitorId);
         this._monitor.cancel();
         this._monitor = null;
-        if (this._beaconId)
-            GLib.source_remove(this._beaconId);
-        this._beaconId = 0;
+        this._clip?.destroy();
+        this._clip = null;
+        this._vkbd?.run_dispose();
+        this._vkbd = null;
         this._stopPolling();
         this._hideOverlay();
+        this._hideFlyout();
         for (const win of [...this._borders.keys()])
             this._removeBorder(win);
         for (const id of this._timeouts)
@@ -138,7 +159,7 @@ export default class ForgekitExtension extends Extension {
                     ...DEFAULTS, ...c,
                     mosaic: {...DEFAULTS.mosaic, ...c.mosaic},
                     pin: {...DEFAULTS.pin, ...c.pin},
-                    beacon: {...DEFAULTS.beacon, ...c.beacon},
+                    clipboard: {...DEFAULTS.clipboard, ...c.clipboard},
                 };
             }
         } catch (e) {
@@ -267,15 +288,16 @@ export default class ForgekitExtension extends Extension {
         if (win !== this._grabbed)
             return;
         this._stopPolling();
-        const hit = this._overlay?.hit;
-        const monitor = this._overlay?.monitor;
+        // A zone picked in the layout picker wins over the zone overlay.
+        const zone = this._flyout?.hit?.zone ?? (this._overlay?.hit != null ? this._config().mosaic.zones[this._overlay.hit] : null);
+        const monitor = this._flyout?.monitor ?? this._overlay?.monitor;
         this._hideOverlay();
+        this._hideFlyout();
         this._grabbed = null;
-        if (hit !== undefined && hit !== null) {
-            const zones = this._config().mosaic.zones;
-            // Let Mutter finish the move before resizing.
+        if (zone) {
+            // Let Mutter finish the move (and any edge tiling) before resizing.
             GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-                this._snapTo(win, zones[hit], monitor);
+                this._snapTo(win, zone, monitor);
                 return GLib.SOURCE_REMOVE;
             });
         }
@@ -292,9 +314,18 @@ export default class ForgekitExtension extends Extension {
         const [x, y, mods] = global.get_pointer();
         if (!(mods & Clutter.ModifierType.SHIFT_MASK)) {
             this._hideOverlay();
+            this._hideFlyout();
             return;
         }
         const monitor = global.display.get_current_monitor();
+        if (this._wantFlyout(x, y, monitor)) {
+            this._hideOverlay();
+            if (!this._flyout || this._flyout.monitor !== monitor)
+                this._showFlyout(monitor);
+            this._updateFlyout(x, y);
+            return;
+        }
+        this._hideFlyout();
         if (!this._overlay || this._overlay.monitor !== monitor)
             this._showOverlay(monitor);
         const o = this._overlay;
@@ -345,82 +376,271 @@ export default class ForgekitExtension extends Extension {
         this._overlay = null;
     }
 
-    // ---------------------------------------------------------------- Beacon
+    // ---------------------------------------------------------------- Mosaic layout picker
 
-    FindCursor() {
-        const [x, y] = global.get_pointer();
+    _layouts() {
+        const l = this._config().mosaic.layouts;
+        return l && l.length ? l : [{id: 'current', name: 'Current layout', zones: this._config().mosaic.zones}];
+    }
+
+    /// Near the top middle of the screen, or still over the open picker.
+    _wantFlyout(x, y, monitor) {
+        const f = this._flyout;
+        if (f && f.monitor === monitor) {
+            const m = 28;
+            return x >= f.x - m && x < f.x + f.width + m && y < f.y + f.height + m;
+        }
+        const geo = global.display.get_monitor_geometry(monitor);
+        const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
+        return y <= area.y + 6 && Math.abs(x - (geo.x + geo.width / 2)) < geo.width * 0.18;
+    }
+
+    _showFlyout(monitor) {
+        this._hideFlyout();
         const color = this._config().pin.color;
-        // Two rings shrinking onto the pointer, the second a moment later.
-        for (const [size, delay] of [[320, 0], [200, 120]]) {
-            const ring = new St.Widget({
-                style: `border: 5px solid ${color}; border-radius: ${size / 2}px; background-color: ${rgba(color, 0.08)};`,
-                width: size, height: size, x: x - size / 2, y: y - size / 2,
-                reactive: false, opacity: 0,
+        const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
+        const layouts = this._layouts();
+        const width = layouts.length * TILE_W + (layouts.length - 1) * TILE_GAP + 2 * FLY_PAD;
+        const height = TILE_H + 2 * FLY_PAD + FLY_LABEL;
+        const x = area.x + Math.round((area.width - width) / 2);
+        const y = area.y + 8;
+        const box = new St.Widget({
+            reactive: false, x, y, width, height,
+            style: 'background-color: rgba(28, 28, 32, 0.94); border-radius: 18px; border: 1px solid rgba(255, 255, 255, 0.12);',
+        });
+        const label = new St.Label({
+            text: 'Drop on a zone',
+            x: 0, y: FLY_PAD + TILE_H + 6, width,
+            style: 'color: rgba(255, 255, 255, 0.75); font-size: 12px; font-weight: 600; text-align: center;',
+        });
+        box.add_child(label);
+        const cells = [];
+        layouts.forEach((layout, li) => {
+            const tx = FLY_PAD + li * (TILE_W + TILE_GAP);
+            const tile = new St.Widget({
+                x: tx, y: FLY_PAD, width: TILE_W, height: TILE_H,
+                style: 'background-color: rgba(255, 255, 255, 0.06); border-radius: 10px;',
             });
-            ring.set_pivot_point(0.5, 0.5);
-            Main.layoutManager.uiGroup.add_child(ring);
-            ring.ease({
-                opacity: 255, duration: 120, delay,
-                onComplete: () => ring.ease({
-                    scale_x: 0.15, scale_y: 0.15, opacity: 0,
-                    duration: 650, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                    onComplete: () => ring.destroy(),
-                }),
+            box.add_child(tile);
+            for (const zone of layout.zones) {
+                const [zx, zy, zw, zh] = zone;
+                const inner = {x: 4, y: 4, w: TILE_W - 8, h: TILE_H - 8};
+                const r = {
+                    x: Math.round(inner.x + zx * inner.w + 1.5), y: Math.round(inner.y + zy * inner.h + 1.5),
+                    width: Math.round(zw * inner.w - 3), height: Math.round(zh * inner.h - 3),
+                };
+                const cell = new St.Widget({...r, style: this._cellStyle(color, false)});
+                tile.add_child(cell);
+                cells.push({
+                    actor: cell, layout, zone,
+                    x: x + tx + r.x, y: y + FLY_PAD + r.y, width: r.width, height: r.height,
+                });
+            }
+        });
+        // A full-size preview of the zone under the pointer.
+        const preview = new St.Widget({reactive: false, visible: false, style: this._tileStyle(true)});
+        Main.layoutManager.uiGroup.add_child(preview);
+        Main.layoutManager.uiGroup.add_child(box);
+        box.opacity = 0;
+        box.translation_y = -10;
+        box.ease({opacity: 255, translation_y: 0, duration: 140, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+        this._flyout = {box, label, cells, preview, monitor, x, y, width, height, hit: null, color};
+    }
+
+    _cellStyle(color, active) {
+        return active
+            ? `background-color: ${color}; border-radius: 4px;`
+            : 'background-color: rgba(255, 255, 255, 0.28); border-radius: 4px;';
+    }
+
+    _updateFlyout(x, y) {
+        const f = this._flyout;
+        const hit = f.cells.find(c => x >= c.x && x < c.x + c.width && y >= c.y && y < c.y + c.height) ?? null;
+        if (hit === f.hit)
+            return;
+        f.hit?.actor.set_style(this._cellStyle(f.color, false));
+        f.hit = hit;
+        if (!hit) {
+            f.label.text = 'Drop on a zone';
+            f.preview.visible = false;
+            return;
+        }
+        hit.actor.set_style(this._cellStyle(f.color, true));
+        f.label.text = hit.layout.name;
+        const area = Main.layoutManager.getWorkAreaForMonitor(f.monitor);
+        const r = zoneRect(hit.zone, area, this._config().mosaic.gap);
+        f.preview.set_position(r.x, r.y);
+        f.preview.set_size(r.width, r.height);
+        f.preview.visible = true;
+    }
+
+    _hideFlyout() {
+        this._flyout?.box.destroy();
+        this._flyout?.preview.destroy();
+        this._flyout = null;
+    }
+
+    // ---------------------------------------------------------------- Clipboard
+
+    _syncClipboard() {
+        const want = this._config().clipboard.panel;
+        if (want && !this._clip) {
+            this._clip = new PanelMenu.Button(0.5, 'Forgekit Clipboard');
+            this._clip.add_child(new St.Icon({icon_name: 'edit-paste-symbolic', style_class: 'system-status-icon'}));
+            this._clip.menu.connect('open-state-changed', (_m, open) => {
+                if (open)
+                    this._loadClips();
             });
+            Main.panel.addToStatusArea('forgekit-clipboard', this._clip);
+            this._renderClips([]);
+        } else if (!want && this._clip) {
+            this._clip.destroy();
+            this._clip = null;
         }
     }
 
-    _ripple(x, y, color) {
-        const size = 44;
-        const dot = new St.Widget({
-            style: `border: 3px solid ${color}; border-radius: ${size / 2}px; background-color: ${rgba(color, 0.25)};`,
-            width: size, height: size, x: x - size / 2, y: y - size / 2, reactive: false,
-        });
-        dot.set_pivot_point(0.5, 0.5);
-        Main.layoutManager.uiGroup.add_child(dot);
-        dot.ease({
-            scale_x: 2.2, scale_y: 2.2, opacity: 0, duration: 420,
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-            onComplete: () => dot.destroy(),
-        });
-    }
-
-    /// Watch the pointer's buttons and modifier state only while a Beacon feature is on.
-    _syncBeacon() {
-        const b = this._config().beacon;
-        const want = b.clicks || b.double_ctrl;
-        if (want && !this._beaconId) {
-            let prev = 0;
-            let lastCtrl = 0;
-            this._beaconId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 25, () => {
-                const [x, y, mods] = global.get_pointer();
-                const cfg = this._config().beacon;
-                const down = m => (mods & m) && !(prev & m);
-                if (cfg.clicks) {
-                    if (down(Clutter.ModifierType.BUTTON1_MASK))
-                        this._ripple(x, y, this._config().pin.color);
-                    if (down(Clutter.ModifierType.BUTTON3_MASK))
-                        this._ripple(x, y, '#f97316');
-                }
-                if (cfg.double_ctrl && down(Clutter.ModifierType.CONTROL_MASK)) {
-                    const now = GLib.get_monotonic_time() / 1000;
-                    if (now - lastCtrl < 400) {
-                        lastCtrl = 0;
-                        this.FindCursor();
-                    } else {
-                        lastCtrl = now;
-                    }
-                }
-                prev = mods;
-                return GLib.SOURCE_CONTINUE;
-            });
-        } else if (!want && this._beaconId) {
-            GLib.source_remove(this._beaconId);
-            this._beaconId = 0;
+    OpenClipboard() {
+        if (this._clip) {
+            this._clip.menu.open();
+            return;
         }
+        // The top-bar icon is off: use the app's pop-up window instead.
+        const app = this._config().app;
+        if (app)
+            this._spawn([app, '--clipboard']);
     }
 
-    // ---------------------------------------------------------------- DropShelf
+    _daemon(method, params, done) {
+        Gio.DBus.session.call(DAEMON, CLIP_PATH, CLIP_IFACE, method, params, null,
+            Gio.DBusCallFlags.NONE, 3000, null, (conn, res) => {
+                let out = null;
+                try {
+                    out = conn.call_finish(res).deep_unpack();
+                } catch (e) {
+                    console.warn(`Forgekit: clipboard ${method}: ${e.message}`);
+                }
+                done?.(out);
+            });
+    }
+
+    _loadClips() {
+        this._daemon('History', new GLib.Variant('(u)', [CLIP_ITEMS]), out => {
+            let items = null;
+            try {
+                items = out ? JSON.parse(out[0]) : null;
+            } catch (e) {
+                items = null;
+            }
+            if (this._clip)
+                this._renderClips(items);
+        });
+    }
+
+    /// `items` null means the background service isn't answering.
+    _renderClips(items) {
+        const menu = this._clip.menu;
+        menu.removeAll();
+        const header = new PopupMenu.PopupMenuItem('Clipboard', {reactive: false, style_class: 'popup-subtitle-menu-item'});
+        header.label.style = 'font-weight: bold;';
+        menu.addMenuItem(header);
+
+        if (items === null) {
+            menu.addMenuItem(new PopupMenu.PopupMenuItem('Clipboard history is off', {reactive: false}));
+            menu.addAction('Turn it on in Forgekit', () => this._openApp());
+            return;
+        }
+        if (items.length === 0) {
+            const empty = new PopupMenu.PopupMenuItem('Copy text or a picture and it shows up here', {reactive: false});
+            empty.label.style = 'color: rgba(255,255,255,0.6);';
+            menu.addMenuItem(empty);
+        } else {
+            const list = new PopupMenu.PopupMenuSection();
+            const scroll = new St.ScrollView({
+                style: 'max-height: 440px;', overlay_scrollbars: true,
+                hscrollbar_policy: St.PolicyType.NEVER,
+            });
+            scroll.set_child(list.actor);
+            const holder = new PopupMenu.PopupMenuSection();
+            holder.actor.add_child(scroll);
+            menu.addMenuItem(holder);
+            for (const it of items)
+                list.addMenuItem(this._clipItem(it));
+        }
+
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        if (items.length)
+            menu.addAction('Clear history', () => this._daemon('Clear', null));
+        menu.addAction('Clipboard settings', () => this._openApp());
+    }
+
+    _clipItem(it) {
+        const item = new PopupMenu.PopupBaseMenuItem({style_class: 'forgekit-clip-item'});
+        item.style = 'padding: 8px 10px; spacing: 8px;';
+        let body;
+        if (it.thumb) {
+            const uri = GLib.filename_to_uri(it.thumb, null);
+            body = new St.Widget({
+                x_expand: true, width: 300, height: 90,
+                style: `background-image: url("${uri}"); background-size: cover; background-position: center; border-radius: 8px;`,
+            });
+        } else {
+            const text = it.preview.split(/\s+/).join(' ').trim();
+            body = new St.Label({text: text.length > 160 ? `${text.slice(0, 160)}…` : text, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+            body.style = 'max-width: 340px;';
+            body.clutter_text.line_wrap = true;
+            body.clutter_text.ellipsize = 3; // Pango.EllipsizeMode.END
+        }
+        item.add_child(body);
+
+        const button = (icon, accessible, active, fn) => {
+            const b = new St.Button({
+                style_class: 'button', can_focus: true, accessible_name: accessible,
+                child: new St.Icon({icon_name: icon, icon_size: 14}),
+                style: `padding: 4px; border-radius: 99px; min-width: 0; min-height: 0;${active ? ` color: ${this._config().pin.color};` : ''}`,
+                y_align: Clutter.ActorAlign.START,
+            });
+            b.connect('clicked', () => {
+                fn();
+                return Clutter.EVENT_STOP;
+            });
+            return b;
+        };
+        item.add_child(button('view-pin-symbolic', it.pinned ? 'Unpin' : 'Pin', it.pinned,
+            () => this._daemon('SetPinned', new GLib.Variant('(xb)', [it.id, !it.pinned]), () => this._loadClips())));
+        item.add_child(button('window-close-symbolic', 'Remove', false,
+            () => this._daemon('Delete', new GLib.Variant('(x)', [it.id]), () => this._loadClips())));
+
+        item.connect('activate', () => {
+            this._clip.menu.close();
+            this._daemon('Copy', new GLib.Variant('(x)', [it.id]), out => {
+                if (out && this._config().clipboard.paste)
+                    this._later(220, () => this._paste());
+            });
+        });
+        return item;
+    }
+
+    _openApp() {
+        const app = this._config().app;
+        if (app)
+            this._spawn([app, 'clipstack']);
+    }
+
+    /// Press Ctrl+V (Ctrl+Shift+V in terminals) in the focused window.
+    _paste() {
+        if (!this._vkbd)
+            this._vkbd = Clutter.get_default_backend().get_default_seat().create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        const cls = global.display.focus_window?.get_wm_class() ?? '';
+        const terminal = /term|kitty|alacritty|wezterm|konsole|ptyxis|foot|tilix|ghostty|console/i.test(cls);
+        const keys = terminal ? [Clutter.KEY_Control_L, Clutter.KEY_Shift_L, Clutter.KEY_v] : [Clutter.KEY_Control_L, Clutter.KEY_v];
+        const t = GLib.get_monotonic_time();
+        for (const k of keys)
+            this._vkbd.notify_keyval(t, k, Clutter.KeyState.PRESSED);
+        for (const k of [...keys].reverse())
+            this._vkbd.notify_keyval(t, k, Clutter.KeyState.RELEASED);
+    }
+
+    // ---------------------------------------------------------------- Bundle
 
     _dragHasFiles() {
         try {
@@ -468,8 +688,13 @@ export default class ForgekitExtension extends Extension {
             return;
         const id = actor.connect('first-frame', () => {
             actor.disconnect(id);
-            if (ours && win.get_title() === SHELF_TITLE) {
+            const title = ours ? win.get_title() : null;
+            if (title === SHELF_TITLE) {
                 this._placeShelf(win);
+                return;
+            }
+            if (title === SPARK_TITLE || title === CLIP_TITLE) {
+                this._placeCentered(win, title === SPARK_TITLE ? 0.2 : 0.12);
                 return;
             }
             const appId = Shell.WindowTracker.get_default().get_window_app(win)?.get_id() ?? '';
@@ -543,6 +768,17 @@ export default class ForgekitExtension extends Extension {
         win.move_resize_frame(true, x, y, w, h);
         if (rule.maximized)
             win.maximize();
+    }
+
+    /// Horizontally centered on the monitor with the pointer, `top` of the way down.
+    _placeCentered(win, top) {
+        const area = Main.layoutManager.getWorkAreaForMonitor(global.display.get_current_monitor());
+        const rect = win.get_frame_rect();
+        const x = area.x + Math.round((area.width - rect.width) / 2);
+        const y = area.y + Math.round(area.height * top);
+        win.move_frame(false, x, y);
+        win.make_above();
+        win.activate(global.get_current_time());
     }
 
     _placeShelf(win) {

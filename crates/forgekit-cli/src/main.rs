@@ -9,7 +9,7 @@ use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use forgekit_core::settings::General;
 use forgekit_core::tools::{
-    self, clipstack, dusk, envy, eyedrop, glyphgrab, hostbook, lockpick, nightowl, relabel, shrinkray, spark, teku,
+    self, clipstack, envy, eyedrop, glyphgrab, hostbook, lockpick, nightowl, relabel, shrinkray, spark, teku,
 };
 use forgekit_core::{CATALOG, Capabilities, Status, catalog};
 
@@ -31,7 +31,7 @@ enum Cmd {
     Enable { tool: String },
     /// Turn a tool off
     Disable { tool: String },
-    /// Launcher queries: apps, calculator, units, `install <file>`, web search
+    /// Open the search bar, or print results for a query: apps, calculator, units, `install <file>`, web search
     Spark {
         query: Vec<String>,
         /// Run the Nth result (1 = first)
@@ -147,22 +147,19 @@ enum Cmd {
         action: TekuCmd,
     },
     /// Clipboard history
-    Clipstack {
+    #[command(alias = "clipstack")]
+    Clipboard {
         #[command(subcommand)]
         action: Option<ClipCmd>,
     },
-    /// Hold files while you move between apps (opens the shelf)
-    Shelf {
+    /// Hold files while you move between apps (opens Bundle)
+    #[command(alias = "shelf")]
+    Bundle {
         /// Files to put on the shelf
         files: Vec<PathBuf>,
     },
     /// Preview a file
     Glance { file: PathBuf },
-    /// Light/dark theme: switch now or set a schedule
-    Dusk {
-        #[command(subcommand)]
-        action: Option<DuskCmd>,
-    },
     /// Environment variables for your session (or the whole system with --system)
     Envy {
         #[command(subcommand)]
@@ -178,15 +175,6 @@ enum Cmd {
     },
     /// Keep the focused window on top of others (toggle)
     Pin,
-    /// Zoom into and draw on your screen (opens fullscreen)
-    Stage,
-    /// Measure things on screen (opens fullscreen)
-    Caliper,
-    /// Find the mouse pointer, or turn click ripples on/off
-    Beacon {
-        #[command(subcommand)]
-        action: Option<BeaconCmd>,
-    },
     /// List your desktop's keyboard shortcuts (`--open` for the window)
     Cheatsheet {
         #[arg(long)]
@@ -201,7 +189,8 @@ enum Cmd {
         clean: Vec<String>,
     },
     /// Apps and services that start when you log in
-    Bootpilot {
+    #[command(alias = "bootpilot")]
+    Startup {
         #[command(subcommand)]
         action: Option<BootCmd>,
     },
@@ -267,6 +256,8 @@ enum HostCmd {
 
 #[derive(Subcommand)]
 enum ClipCmd {
+    /// Pop up the history (from the top-bar icon on GNOME, else a small window)
+    Open,
     /// Recent items (pinned first)
     List {
         #[arg(default_value = "")]
@@ -305,29 +296,6 @@ enum ClipCmd {
 enum OnOff {
     On,
     Off,
-}
-
-#[derive(Subcommand)]
-enum DuskCmd {
-    /// Current mode and schedule
-    Status,
-    Light,
-    Dark,
-    Toggle,
-    /// Switch at fixed times, e.g. `dusk times 07:00 19:30`
-    Times {
-        light: String,
-        dark: String,
-    },
-    /// Switch at sunrise and sunset for a location
-    Sun {
-        #[arg(allow_hyphen_values = true)]
-        latitude: f64,
-        #[arg(allow_hyphen_values = true)]
-        longitude: f64,
-    },
-    /// Stop switching automatically
-    Manual,
 }
 
 #[derive(Subcommand)]
@@ -433,14 +401,6 @@ enum RoamCmd {
     Status,
     Open,
     Install,
-}
-
-#[derive(Subcommand)]
-enum BeaconCmd {
-    /// Highlight the pointer now
-    Find,
-    /// Ripples where you click
-    Clicks { state: OnOff },
 }
 
 #[derive(Subcommand)]
@@ -569,6 +529,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::Disable { tool } => toggle(&tool, false),
         Cmd::Spark { query, run, json } => {
             gate("spark", &caps)?;
+            if query.is_empty() {
+                return exec_app(vec!["--spark".into()]);
+            }
             let items = spark::query(&query.join(" "), &spark::load_apps());
             if let Some(n) = run {
                 let item = items.get(n.wrapping_sub(1)).with_context(|| format!("no result #{n}"))?;
@@ -700,11 +663,18 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             gate("teku", &caps)?;
             teku_cmd(action)
         }
-        Cmd::Clipstack { action } => {
+        Cmd::Clipboard { action: Some(ClipCmd::Open) } => {
+            gate("clipstack", &caps)?;
+            if forgekit_core::desktop::open_clipboard() {
+                return Ok(());
+            }
+            exec_app(vec!["--clipboard".into()])
+        }
+        Cmd::Clipboard { action } => {
             gate("clipstack", &caps)?;
             clipstack_cmd(action.unwrap_or(ClipCmd::List { search: String::new(), limit: 20, json: false }))
         }
-        Cmd::Shelf { files } => {
+        Cmd::Bundle { files } => {
             gate("shelf", &caps)?;
             let mut args = vec!["--shelf".into()];
             args.extend(files.iter().map(|f| f.canonicalize().unwrap_or_else(|_| f.clone()).into_os_string()));
@@ -714,10 +684,6 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             gate("glance", &caps)?;
             anyhow::ensure!(file.exists(), "{} doesn't exist", file.display());
             exec_app(vec!["--glance".into(), file.canonicalize()?.into_os_string()])
-        }
-        Cmd::Dusk { action } => {
-            gate("dusk", &caps)?;
-            dusk_cmd(action.unwrap_or(DuskCmd::Status), &caps)
         }
         Cmd::Envy { action, system } => {
             gate("envy", &caps)?;
@@ -737,30 +703,6 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 None => tools::notify("Pin", "Toggled always-on-top for the focused window"),
             }
             Ok(())
-        }
-        Cmd::Stage => {
-            gate("stage", &caps)?;
-            exec_app(vec!["--stage".into()])
-        }
-        Cmd::Caliper => {
-            gate("caliper", &caps)?;
-            exec_app(vec!["--caliper".into()])
-        }
-        Cmd::Beacon { action } => {
-            use forgekit_core::tools::beacon;
-            gate("beacon", &caps)?;
-            let b = forgekit_core::desktop::backend(&caps).context("no backend for this desktop")?;
-            match action.unwrap_or(BeaconCmd::Find) {
-                BeaconCmd::Find => beacon::find(b),
-                BeaconCmd::Clicks { state } => {
-                    let mut s = beacon::Settings::load()?;
-                    s.clicks = matches!(state, OnOff::On);
-                    s.save()?;
-                    beacon::apply(b, &s)?;
-                    println!("Click ripples {}.", if s.clicks { "on" } else { "off" });
-                    Ok(())
-                }
-            }
         }
         Cmd::Cheatsheet { open, search } => {
             gate("cheatsheet", &caps)?;
@@ -810,7 +752,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             }
             Ok(())
         }
-        Cmd::Bootpilot { action } => {
+        Cmd::Startup { action } => {
             use forgekit_core::tools::bootpilot;
             gate("bootpilot", &caps)?;
             match action.unwrap_or(BootCmd::List) {
@@ -1052,6 +994,7 @@ fn clipstack_cmd(action: ClipCmd) -> anyhow::Result<()> {
     use clipstack::store::Store;
     let store = Store::open_default()?;
     match action {
+        ClipCmd::Open => unreachable!("handled before opening the store"),
         ClipCmd::List { search, limit, json } => {
             let items = store.list(&search, limit)?;
             if json {
@@ -1108,62 +1051,6 @@ fn clipstack_cmd(action: ClipCmd) -> anyhow::Result<()> {
             s.private = matches!(state, OnOff::On);
             s.save()?;
             println!("Private mode {}.", if s.private { "on: nothing is recorded" } else { "off" });
-            Ok(())
-        }
-    }
-}
-
-fn dusk_cmd(action: DuskCmd, caps: &Capabilities) -> anyhow::Result<()> {
-    let mut settings = dusk::Settings::load()?;
-    let set_mode = |m: dusk::Mode| -> anyhow::Result<()> {
-        dusk::apply(m, caps.desktop, &settings)?;
-        println!("Switched to {m:?}.");
-        Ok(())
-    };
-    match action {
-        DuskCmd::Status => {
-            let now = chrono::Local::now();
-            println!("Now: {:?}", dusk::current(caps.desktop)?);
-            match &settings.schedule {
-                dusk::Schedule::Manual => println!("Schedule: manual"),
-                dusk::Schedule::Times { light, dark } => println!("Schedule: light at {light}, dark at {dark}"),
-                dusk::Schedule::Sun { latitude, longitude } => {
-                    println!("Schedule: sunrise/sunset at {latitude:.3}, {longitude:.3}");
-                    if let Some((rise, set)) = dusk::sun_times(now, *latitude, *longitude) {
-                        println!("Today: sunrise {}, sunset {}", rise.format("%H:%M"), set.format("%H:%M"));
-                    }
-                }
-            }
-            if let Some(next) = dusk::next_change(&settings.schedule, now) {
-                println!("Next switch: {}", next.format("%a %H:%M"));
-            }
-            Ok(())
-        }
-        DuskCmd::Light => set_mode(dusk::Mode::Light),
-        DuskCmd::Dark => set_mode(dusk::Mode::Dark),
-        DuskCmd::Toggle => set_mode(dusk::current(caps.desktop)?.flip()),
-        DuskCmd::Times { light, dark } => {
-            dusk::parse_time(&light)?;
-            dusk::parse_time(&dark)?;
-            settings.schedule = dusk::Schedule::Times { light, dark };
-            settings.save()?;
-            println!("Saved. forgekitd switches automatically while it runs.");
-            Ok(())
-        }
-        DuskCmd::Sun { latitude, longitude } => {
-            anyhow::ensure!(
-                (-90.0..=90.0).contains(&latitude) && (-180.0..=180.0).contains(&longitude),
-                "latitude is -90..90 and longitude -180..180"
-            );
-            settings.schedule = dusk::Schedule::Sun { latitude, longitude };
-            settings.save()?;
-            println!("Saved. forgekitd switches automatically while it runs.");
-            Ok(())
-        }
-        DuskCmd::Manual => {
-            settings.schedule = dusk::Schedule::Manual;
-            settings.save()?;
-            println!("Automatic switching is off.");
             Ok(())
         }
     }
@@ -1241,6 +1128,7 @@ fn toggle(id: &str, on: bool) -> anyhow::Result<()> {
     let mut g = General::load()?;
     g.set_enabled(tool.id, on);
     g.save()?;
+    forgekit_core::desktop::write_config(None);
     println!("{} is now {}.", tool.name, if on { "on" } else { "off" });
     Ok(())
 }

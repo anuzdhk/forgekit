@@ -1,11 +1,11 @@
-//! Nightowl, Dusk, Hostbook and Envy pages.
+//! Nightowl, Hostbook and Envy pages.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use forgekit_core::tools::{dusk, envy, hostbook, nightowl};
+use forgekit_core::tools::{envy, hostbook, nightowl};
 use gtk::{gio, glib};
 
 use super::boxed_list;
@@ -162,158 +162,6 @@ pub fn nightowl(app: &Rc<App>) -> Cards {
         }
     });
     vec![big.upcast(), opts.upcast()]
-}
-
-// ------------------------------------------------------------------ Dusk
-
-pub fn dusk(app: &Rc<App>) -> Cards {
-    let desktop = app.caps.desktop;
-    let settings = Rc::new(RefCell::new(dusk::Settings::load().unwrap_or_default()));
-    let current = dusk::current(desktop).ok();
-
-    // ---- switch now
-    let (now, now_body) = w::card("Right now", "Switch your whole desktop between light and dark");
-    let seg = hbox(10);
-    seg.set_homogeneous(true);
-    let light =
-        gtk::ToggleButton::builder().css_classes(["fk-quick"]).active(current == Some(dusk::Mode::Light)).build();
-    let dark = gtk::ToggleButton::builder()
-        .css_classes(["fk-quick"])
-        .group(&light)
-        .active(current == Some(dusk::Mode::Dark))
-        .build();
-    for (b, icon, name, sub) in
-        [(&light, "sun", "Light", "Bright backgrounds"), (&dark, "moon", "Dark", "Easy on the eyes at night")]
-    {
-        let c = hbox(12);
-        c.append(&w::icon_tile(icon, false, ""));
-        let t = vbox(0);
-        t.append(&w::label(name, &["fk-tile-title"]));
-        t.append(&w::label(sub, &["fk-tile-summary"]));
-        c.append(&t);
-        b.set_child(Some(&c));
-        seg.append(b);
-    }
-    now_body.append(&seg);
-    for (b, mode) in [(&light, dusk::Mode::Light), (&dark, dusk::Mode::Dark)] {
-        let (a, s) = (app.clone(), settings.clone());
-        b.connect_toggled(move |b| {
-            if !b.is_active() {
-                return;
-            }
-            let st = s.borrow().clone();
-            let a = a.clone();
-            util::background(
-                move || dusk::apply(mode, desktop, &st).map_err(|e| format!("{e:#}")),
-                move |r| {
-                    if let Err(e) = r {
-                        a.toast(&e);
-                    }
-                },
-            );
-        });
-    }
-
-    // ---- schedule
-    let (sched, sched_body) =
-        w::card("Switch automatically", "The background service applies this, so it works while Forgekit is closed");
-    let rows = boxed_list();
-    let kinds = ["Off", "At set times", "At sunrise and sunset"];
-    let kind = adw::ComboRow::builder().title("Schedule").model(&gtk::StringList::new(&kinds)).build();
-    let (light_at, dark_at) = match &settings.borrow().schedule {
-        dusk::Schedule::Times { light, dark } => (light.clone(), dark.clone()),
-        _ => ("07:00".to_string(), "19:00".to_string()),
-    };
-    let (lat, lon) = match &settings.borrow().schedule {
-        dusk::Schedule::Sun { latitude, longitude } => (latitude.to_string(), longitude.to_string()),
-        _ => (String::new(), String::new()),
-    };
-    let light_row = adw::EntryRow::builder().title("Light from (HH:MM)").text(&light_at).build();
-    let dark_row = adw::EntryRow::builder().title("Dark from (HH:MM)").text(&dark_at).build();
-    let lat_row = adw::EntryRow::builder().title("Latitude (e.g. 27.71)").text(&lat).build();
-    let lon_row = adw::EntryRow::builder().title("Longitude (e.g. 85.32)").text(&lon).build();
-    rows.append(&kind);
-    for r in [&light_row, &dark_row, &lat_row, &lon_row] {
-        rows.append(r);
-    }
-    sched_body.append(&rows);
-    let info = w::label("", &["dim"]);
-    sched_body.append(&info);
-    let save = w::button("Save schedule", Some("check"), "suggested-action");
-    save.set_halign(gtk::Align::End);
-    sched_body.append(&save);
-
-    let update_visibility = {
-        let (kind, light_row, dark_row, lat_row, lon_row, info, s) = (
-            kind.clone(),
-            light_row.clone(),
-            dark_row.clone(),
-            lat_row.clone(),
-            lon_row.clone(),
-            info.clone(),
-            settings.clone(),
-        );
-        Rc::new(move || {
-            let k = kind.selected();
-            light_row.set_visible(k == 1);
-            dark_row.set_visible(k == 1);
-            lat_row.set_visible(k == 2);
-            lon_row.set_visible(k == 2);
-            let now = chrono::Local::now();
-            let sched = s.borrow().schedule.clone();
-            let mut text = String::new();
-            if let dusk::Schedule::Sun { latitude, longitude } = &sched
-                && let Some((rise, set)) = dusk::sun_times(now, *latitude, *longitude)
-            {
-                text.push_str(&format!("Today: sunrise {}, sunset {}. ", rise.format("%H:%M"), set.format("%H:%M")));
-            }
-            if let Some(next) = dusk::next_change(&sched, now) {
-                text.push_str(&format!("Next switch: {}.", next.format("%A %H:%M")));
-            }
-            info.set_label(&text);
-            info.set_visible(!text.is_empty());
-        })
-    };
-    kind.set_selected(match settings.borrow().schedule {
-        dusk::Schedule::Manual => 0,
-        dusk::Schedule::Times { .. } => 1,
-        dusk::Schedule::Sun { .. } => 2,
-    });
-    update_visibility();
-    {
-        let u = update_visibility.clone();
-        kind.connect_selected_notify(move |_| u());
-    }
-    let a = app.clone();
-    save.connect_clicked(move |_| {
-        let schedule = match kind.selected() {
-            1 => {
-                let (l, d) = (light_row.text().to_string(), dark_row.text().to_string());
-                if let Err(e) = dusk::parse_time(&l).and(dusk::parse_time(&d)) {
-                    a.toast(&format!("{e:#}"));
-                    return;
-                }
-                dusk::Schedule::Times { light: l, dark: d }
-            }
-            2 => match (lat_row.text().trim().parse::<f64>(), lon_row.text().trim().parse::<f64>()) {
-                (Ok(la), Ok(lo)) if (-90.0..=90.0).contains(&la) && (-180.0..=180.0).contains(&lo) => {
-                    dusk::Schedule::Sun { latitude: la, longitude: lo }
-                }
-                _ => {
-                    a.toast("Latitude is -90 to 90 and longitude -180 to 180");
-                    return;
-                }
-            },
-            _ => dusk::Schedule::Manual,
-        };
-        settings.borrow_mut().schedule = schedule;
-        match settings.borrow().save() {
-            Ok(()) => a.toast("Schedule saved"),
-            Err(e) => a.toast(&format!("{e:#}")),
-        }
-        update_visibility();
-    });
-    vec![now.upcast(), sched.upcast()]
 }
 
 // ------------------------------------------------------------------ Hostbook

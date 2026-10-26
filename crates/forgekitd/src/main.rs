@@ -1,9 +1,8 @@
 //! `forgekitd` — the per-user daemon. Owns long-lived state (Nightowl's
-//! inhibitor, Clipstack's clipboard watcher, Dusk's schedule) and serves it on
+//! inhibitor and the clipboard watcher) and serves it on
 //! the session bus as `org.forgekit.Daemon1` and `org.forgekit.Clipstack1`.
 
 mod clipstack;
-mod dusk;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -129,7 +128,6 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("forgekitd {} on {NAME}", env!("CARGO_PKG_VERSION"));
 
     clip.sync().await;
-    tokio::spawn(dusk::run());
 
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     tokio::select! {

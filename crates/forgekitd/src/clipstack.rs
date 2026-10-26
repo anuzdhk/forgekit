@@ -114,6 +114,57 @@ impl Clipstack {
         Ok(())
     }
 
+    /// Recent items as JSON (pinned first), for the top-bar menu. Images come
+    /// with `thumb`, a cached copy of the picture on disk.
+    async fn history(&self, limit: u32) -> fdo::Result<String> {
+        let store = Store::open_default().map_err(failed)?;
+        let items = store.list("", limit.clamp(1, 100) as usize).map_err(failed)?;
+        let dir = forgekit_core::paths::cache_dir().join("clip-thumbs");
+        let out: Vec<serde_json::Value> = items
+            .iter()
+            .map(|it| {
+                let mut v = serde_json::to_value(it).unwrap_or_default();
+                if it.is_image() {
+                    let path = dir.join(format!("{}.{}", it.id, it.mime.trim_start_matches("image/")));
+                    if !path.exists()
+                        && let Ok(Some(clip)) = store.get(it.id)
+                    {
+                        let _ = std::fs::create_dir_all(&dir);
+                        let _ = std::fs::write(&path, &clip.data);
+                    }
+                    v["thumb"] = path.display().to_string().into();
+                }
+                v
+            })
+            .collect();
+        Ok(serde_json::Value::from(out).to_string())
+    }
+
+    async fn set_pinned(
+        &self,
+        id: i64,
+        pinned: bool,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        Store::open_default().and_then(|s| s.set_pinned(id, pinned)).map_err(failed)?;
+        Clipstack::changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> fdo::Result<()> {
+        Store::open_default().and_then(|s| s.delete(id)).map_err(failed)?;
+        Clipstack::changed(&emitter).await?;
+        Ok(())
+    }
+
+    /// Remove everything but pinned items. Returns how many went.
+    async fn clear(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> fdo::Result<u32> {
+        let n = Store::open_default().and_then(|s| s.clear()).map_err(failed)?;
+        let _ = std::fs::remove_dir_all(forgekit_core::paths::cache_dir().join("clip-thumbs"));
+        Clipstack::changed(&emitter).await?;
+        Ok(n as u32)
+    }
+
     /// Put text on the clipboard (used by the CLI when no clipboard tool is installed).
     async fn set_text(&self, text: String) -> fdo::Result<()> {
         let guard = self.running.lock().unwrap();

@@ -11,6 +11,11 @@ pub fn config_dir() -> PathBuf {
     dirs::config_dir().unwrap_or_else(|| home().join(".config")).join("forgekit")
 }
 
+/// `~/.cache/forgekit`
+pub fn cache_dir() -> PathBuf {
+    dirs::cache_dir().unwrap_or_else(|| home().join(".cache")).join("forgekit")
+}
+
 /// `~/.local/share/forgekit/<tool>`
 pub fn data_dir(tool: &str) -> PathBuf {
     dirs::data_dir().unwrap_or_else(|| home().join(".local/share")).join("forgekit").join(tool)

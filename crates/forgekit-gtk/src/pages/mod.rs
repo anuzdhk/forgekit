@@ -45,8 +45,18 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
     info.append(&title_row);
     info.append(&w::label(tool.summary, &["dim"]));
     let a = app.clone();
-    info.append(&w::command_chip(&format!("forgekit {}", tool.id), move || a.toast("Command copied")));
-    if !tool.is_planned() && !matches!(status, Status::Unsupported(_)) {
+    let cli = match tool.id {
+        "clipstack" => "clipboard",
+        "shelf" => "bundle",
+        "bootpilot" => "startup",
+        "servicedeck" => "services",
+        "settings-explorer" => "settings",
+        id => id,
+    };
+    info.append(&w::command_chip(&format!("forgekit {cli}"), move || a.toast("Command copied")));
+    // Teku runs from files, Glance from Space in Files, and Roam is just on or off.
+    if !tool.is_planned() && !matches!(status, Status::Unsupported(_)) && !matches!(tool.id, "teku" | "roam" | "glance")
+    {
         info.append(&crate::shortcut::row(tool, app));
     }
     hero.append(&info);
@@ -85,7 +95,7 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
     }
     if let Status::NeedsSetup(reason) = &status
         && tool.tier != forgekit_core::Tier::Helper
-        && !matches!(tool.id, "mosaic" | "pin" | "beacon" | "scenes" | "roam")
+        && !matches!(tool.id, "mosaic" | "pin" | "scenes" | "roam")
     {
         root.append(&setup_card(tool, reason, app));
     }
@@ -103,15 +113,11 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
         "lockpick" => files::lockpick(app),
         "teku" => files::teku(app),
         "nightowl" => system::nightowl(app),
-        "dusk" => system::dusk(app),
         "hostbook" => system::hostbook(app),
         "envy" => system::envy(app),
         "keysmith" => input::keysmith(app),
         "mosaic" => windows::mosaic(app),
         "pin" => windows::pin(app),
-        "stage" => present::stage(app),
-        "caliper" => present::caliper(app),
-        "beacon" => present::beacon(app),
         "cheatsheet" => present::cheatsheet(app),
         "sweep" => maintenance::sweep(app),
         "bootpilot" => maintenance::bootpilot(app),
@@ -145,6 +151,11 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
         pill.add_css_class(tone);
         if tool.id == "clipstack" {
             util::daemon_call("/org/forgekit/Clipstack", "org.forgekit.Clipstack1", "Reload");
+            // Shows or hides the top-bar icon.
+            forgekit_core::desktop::write_config(None);
+        }
+        if tool.id == "glance" {
+            crate::sync_previewer();
         }
         a.tool_toggled();
     });

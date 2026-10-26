@@ -36,18 +36,14 @@ pub struct Action {
 /// their page in the app.
 pub fn action(tool: &crate::Tool) -> Action {
     let (label, bin, args): (String, &str, Vec<&str>) = match tool.id {
-        "spark" => ("Open Spark".into(), "forgekit-gtk", vec!["spark"]),
-        "shelf" => ("Open DropShelf".into(), "forgekit-gtk", vec!["--shelf"]),
-        "clipstack" => ("Open clipboard history".into(), "forgekit-gtk", vec!["clipstack"]),
+        "spark" => ("Open Spark".into(), "forgekit-gtk", vec!["--spark"]),
+        "shelf" => ("Open Bundle".into(), "forgekit-gtk", vec!["--shelf"]),
+        "clipstack" => ("Open clipboard history".into(), "forgekit", vec!["clipboard", "open"]),
         "eyedrop" => ("Pick a color and copy it".into(), "forgekit", vec!["eyedrop", "--notify"]),
         "glyphgrab" => ("Grab text from the screen".into(), "forgekit", vec!["glyphgrab", "--notify"]),
         "nightowl" => ("Turn keep-awake on or off".into(), "forgekit", vec!["nightowl", "--toggle"]),
-        "dusk" => ("Switch light/dark".into(), "forgekit", vec!["dusk", "toggle"]),
         "pin" => ("Pin the focused window on top".into(), "forgekit", vec!["pin"]),
-        "stage" => ("Zoom and draw on the screen".into(), "forgekit-gtk", vec!["--stage"]),
-        "caliper" => ("Measure on the screen".into(), "forgekit-gtk", vec!["--caliper"]),
         "cheatsheet" => ("Show all keyboard shortcuts".into(), "forgekit-gtk", vec!["--cheatsheet"]),
-        "beacon" => ("Find the mouse pointer".into(), "forgekit", vec!["beacon", "find"]),
         id => (format!("Open {}", tool.name), "forgekit-gtk", vec![id]),
     };
     let mut command = shell_quote(&bin_path(bin).to_string_lossy());
@@ -82,7 +78,7 @@ pub fn quote(s: &str) -> String {
 
 /// Prefer the binary next to the running program (a build folder or an
 /// install prefix), then `$PATH`.
-fn bin_path(name: &str) -> PathBuf {
+pub fn bin_path(name: &str) -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join(name)))
@@ -372,6 +368,81 @@ fn humanize(key: &str) -> String {
     }
 }
 
+/// (schema, key)
+type GSettingsKey = (&'static str, &'static str);
+
+/// Shortcuts Forgekit sets up the first time it runs: the tool, its key, and
+/// the GNOME built-ins that use the same key and are moved out of the way.
+pub const DEFAULTS: &[(&str, &str, &[GSettingsKey])] = &[
+    // GNOME's "switch input source": the other binding (XF86Keyboard) stays.
+    ("spark", "<Super>space", &[("org.gnome.desktop.wm.keybindings", "switch-input-source")]),
+    // GNOME's notification list: Super+M still opens it.
+    ("clipstack", "<Super>v", &[("org.gnome.shell.keybindings", "toggle-message-tray")]),
+];
+
+/// True the first time it's asked for `what`, then never again (remembered
+/// in ~/.config/forgekit/first-run), so defaults don't come back after the
+/// user removes them.
+pub fn first_time(what: &str) -> bool {
+    let file = crate::paths::config_dir().join("first-run");
+    let done = std::fs::read_to_string(&file).unwrap_or_default();
+    if done.lines().any(|l| l == what) {
+        return false;
+    }
+    let _ = std::fs::create_dir_all(crate::paths::config_dir());
+    let _ = std::fs::write(&file, format!("{done}{what}\n"));
+    true
+}
+
+/// Bind [`DEFAULTS`] that haven't been offered before. Returns a line for
+/// each one set, e.g. "Spark: Super+Space".
+pub fn apply_defaults(b: Backend) -> Vec<String> {
+    let mut out = Vec::new();
+    for (tool, accel, free) in DEFAULTS {
+        if !first_time(&format!("shortcut-{tool}")) || get(b, tool).is_some() {
+            continue;
+        }
+        let Some(t) = crate::catalog::find(tool) else { continue };
+        if b == Backend::Gnome {
+            for (schema, key) in *free {
+                let _ = unbind(schema, key, accel);
+            }
+        }
+        if !conflicts(b, tool, accel).is_empty() {
+            continue;
+        }
+        let a = action(t);
+        if set(b, tool, &a.label, &a.command, accel).is_ok() {
+            out.push(format!("{}: {}", t.name, pretty(accel)));
+        }
+    }
+    out
+}
+
+/// Take `accel` out of a built-in binding list, keeping its other keys.
+fn unbind(schema: &str, key: &str, accel: &str) -> anyhow::Result<()> {
+    let want = normalize(accel);
+    let current = quoted_strings(&gsettings(&["get", schema, key])?);
+    let kept: Vec<String> = current.iter().filter(|a| normalize(a) != want).map(|a| gvariant_string(a)).collect();
+    if kept.len() == current.len() {
+        return Ok(());
+    }
+    let value = if kept.is_empty() { "@as []".to_string() } else { format!("[{}]", kept.join(", ")) };
+    gsettings(&["set", schema, key, &value]).map(|_| ())
+}
+
+/// `<Super>space` → `Super+Space`.
+pub fn pretty(accel: &str) -> String {
+    normalize(accel)
+        .split('+')
+        .map(|p| {
+            let mut c = p.chars();
+            c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+        })
+        .collect::<Vec<String>>()
+        .join("+")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,6 +451,7 @@ mod tests {
     fn accelerators() {
         assert_eq!(normalize("<Primary><Shift>C"), "ctrl+shift+c");
         assert_eq!(normalize("<Shift><Control>c"), "ctrl+shift+c");
+        assert_eq!(pretty("<Super>space"), "Super+Space");
         assert_eq!(normalize("<Super>space"), "super+space");
         assert_eq!(normalize("<Mod4><Alt>F4"), "alt+super+f4");
         assert_eq!(normalize("XF86Calculator"), "xf86calculator");

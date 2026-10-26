@@ -1,4 +1,4 @@
-//! Sweep, Bootpilot, Servicedeck, Settings Explorer, Scenes and Roam pages.
+//! Sweep, Startup Apps, Services, Settings Explorer, Scenes and Roam pages.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -68,13 +68,15 @@ pub fn sweep(app: &Rc<App>) -> Cards {
             picks.borrow_mut().clear();
             let (list, picks, summary) = (list.clone(), picks.clone(), summary.clone());
             util::background(sweep::scan, move |items| {
+                let saved = sweep::Settings::load().unwrap_or_default();
                 for item in items {
                     let row = adw::ActionRow::builder()
                         .title(&item.title)
                         .subtitle(w::escape(&item.detail))
                         .activatable(true)
                         .build();
-                    let check = gtk::CheckButton::builder().active(item.recommended).valign(gtk::Align::Center).build();
+                    let check =
+                        gtk::CheckButton::builder().active(saved.picks(&item)).valign(gtk::Align::Center).build();
                     row.add_prefix(&check);
                     row.set_activatable_widget(Some(&check));
                     if item.root {
@@ -85,8 +87,14 @@ pub fn sweep(app: &Rc<App>) -> Cards {
                     }
                     let size = item.size.map(human_size).unwrap_or_else(|| "—".into());
                     row.add_suffix(&gtk::Label::builder().label(size).css_classes(["fk-tile-title"]).build());
-                    let s = summary.clone();
-                    check.connect_toggled(move |_| s());
+                    let (s, picks2) = (summary.clone(), picks.clone());
+                    check.connect_toggled(move |_| {
+                        // Remember the ticks for "Clean PC" on Home.
+                        let selected =
+                            picks2.borrow().iter().filter(|(_, c)| c.is_active()).map(|(i, _)| i.kind).collect();
+                        let _ = sweep::Settings { selected: Some(selected) }.save();
+                        s();
+                    });
                     list.append(&row);
                     picks.borrow_mut().push((item, check));
                 }

@@ -254,10 +254,27 @@ pub fn start_daemon() -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Start forgekitd at login (or stop doing so).
+pub fn set_autostart(on: bool) -> std::io::Result<()> {
+    let f = autostart_file();
+    if on {
+        let exec = daemon_path().map(|p| p.display().to_string()).unwrap_or_else(|| "forgekitd".into());
+        std::fs::create_dir_all(f.parent().unwrap())?;
+        std::fs::write(
+            &f,
+            format!(
+                "[Desktop Entry]\nType=Application\nName=Forgekit service\nExec={exec}\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
+            ),
+        )
+    } else {
+        std::fs::remove_file(&f).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+    }
+}
+
 fn behavior(app: &Rc<App>) -> gtk::Box {
     let (card, body) = w::card(
         "Background service",
-        "forgekitd runs Clipstack, Dusk's schedule and Nightowl timers while the app is closed",
+        "forgekitd keeps clipboard history and Nightowl timers running while the app is closed",
     );
     let rows = gtk::ListBox::builder().css_classes(["boxed-list"]).selection_mode(gtk::SelectionMode::None).build();
 
@@ -299,19 +316,7 @@ fn behavior(app: &Rc<App>) -> gtk::Box {
         .build();
     let a = app.clone();
     auto.connect_active_notify(move |r| {
-        let f = autostart_file();
-        let res = if r.is_active() {
-            let exec = daemon_path().map(|p| p.display().to_string()).unwrap_or_else(|| "forgekitd".into());
-            std::fs::create_dir_all(f.parent().unwrap()).and_then(|_| {
-                std::fs::write(
-                    &f,
-                    format!("[Desktop Entry]\nType=Application\nName=Forgekit service\nExec={exec}\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"),
-                )
-            })
-        } else {
-            std::fs::remove_file(&f).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
-        };
-        if let Err(e) = res {
+        if let Err(e) = set_autostart(r.is_active()) {
             a.toast(&format!("Couldn't update autostart: {e}"));
         }
     });

@@ -1,7 +1,7 @@
 {
   "uuid": "forgekit@anuzdhk.github.io",
   "name": "Forgekit",
-  "description": "Companion for the Forgekit app: shows DropShelf when you start dragging files and keeps it in a screen corner. Configure it from Forgekit.",
+  "description": "Companion for the Forgekit app: clipboard history in the top bar, Bundle when you drag files, window layouts and always-on-top. Configure it from Forgekit.",
   "shell-version": ["46", "47", "48", "49", "50"],
   "url": "https://github.com/anuzdhk/forgekit"
 }

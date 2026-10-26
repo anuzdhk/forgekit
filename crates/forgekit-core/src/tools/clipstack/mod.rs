@@ -73,6 +73,10 @@ pub struct Settings {
     pub private: bool,
     /// Ignore text that is only whitespace.
     pub skip_blank: bool,
+    /// Show the clipboard icon in the top bar (GNOME extension).
+    pub panel_icon: bool,
+    /// After picking an item from the pop-up, paste it into the window you were in.
+    pub paste: bool,
 }
 
 impl Default for Settings {
@@ -84,6 +88,8 @@ impl Default for Settings {
             expire_days: 30,
             private: false,
             skip_blank: true,
+            panel_icon: true,
+            paste: true,
         }
     }
 }

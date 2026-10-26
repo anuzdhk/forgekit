@@ -1,10 +1,52 @@
 //! Glance: decide how to preview a file. The app does the rendering.
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
+
+/// The D-Bus name GNOME Files sends Space to.
+pub const PREVIEWER_NAME: &str = "org.gnome.NautilusPreviewer2";
+pub const PREVIEWER_IFACE: &str = "org.gnome.NautilusPreviewer2";
+pub const PREVIEWER_PATH: &str = "/org/gnome/NautilusPreviewer";
+
+fn previewer_service() -> PathBuf {
+    dirs::data_dir().unwrap_or_default().join("dbus-1/services").join(format!("{PREVIEWER_NAME}.service"))
+}
+
+/// GNOME Sushi already answers Space in Files; Forgekit then stays out of the way.
+pub fn sushi_installed() -> bool {
+    ["/usr/share/dbus-1/services", "/usr/local/share/dbus-1/services"]
+        .iter()
+        .any(|d| Path::new(d).join(format!("{PREVIEWER_NAME}.service")).exists())
+}
+
+/// Let D-Bus start `app --previewer` when Files asks for a preview, or stop
+/// that when `app` is `None` (Glance switched off).
+pub fn set_previewer(app: Option<&str>) -> anyhow::Result<()> {
+    let file = previewer_service();
+    match app {
+        Some(app) if !sushi_installed() => {
+            let text =
+                format!("[D-BUS Service]\nName={PREVIEWER_NAME}\nExec={} --previewer\n", crate::shortcuts::quote(app));
+            if std::fs::read_to_string(&file).ok().as_deref() != Some(text.as_str()) {
+                std::fs::create_dir_all(file.parent().unwrap())?;
+                std::fs::write(&file, text)?;
+            }
+        }
+        _ => {
+            if file.exists() {
+                std::fs::remove_file(&file)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn previewer_installed() -> bool {
+    previewer_service().exists()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]

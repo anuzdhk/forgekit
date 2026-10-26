@@ -103,6 +103,11 @@ pub fn mosaic(app: &Rc<App>) -> Cards {
                 "Hold Shift while dragging a window",
                 "Zones appear; let go over one and the window fills it.",
             ),
+            (
+                "layout-grid",
+                "Or drag it to the top middle of the screen",
+                "Still holding Shift: every layout drops down. Let go over a zone in any of them.",
+            ),
             ("keyboard", "Or use a keyboard shortcut", "Give each zone a shortcut below, e.g. Super+Alt+1."),
         ]
     } else {

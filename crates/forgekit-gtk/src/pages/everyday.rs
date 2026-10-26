@@ -144,7 +144,7 @@ pub fn clipstack(app: &Rc<App>) -> Cards {
         t.set_hexpand(true);
         t.append(&w::label("The background service isn't running", &["fk-card-title"]));
         t.append(&w::label(
-            "Clipstack records your clipboard through forgekitd. Start it, and turn on “Start at login” in Settings.",
+            "Clipboard history records what you copy through forgekitd. Start it, and turn on “Start at login” in Settings.",
             &["dim"],
         ));
         status.append(&t);
@@ -231,6 +231,51 @@ pub fn clipstack(app: &Rc<App>) -> Cards {
         let _ = &sub;
     });
     cards.push(hist.upcast());
+
+    // ---- pop-up
+    let (pop_card, pop_body) =
+        w::card("Pop-up", "Press the shortcut above to see recent clips anywhere; pick one to paste it.");
+    let rows = boxed_list();
+    let gnome = app.caps.desktop == forgekit_core::capability::Desktop::Gnome;
+    if gnome {
+        rows.append(&super::extension_row(app, "clipstack"));
+    }
+    let s = clipstack::Settings::load().unwrap_or_default();
+    let panel = adw::SwitchRow::builder()
+        .title("Icon in the top bar")
+        .subtitle("Click it, or press the shortcut, to drop the history down from the top bar")
+        .active(s.panel_icon)
+        .visible(gnome)
+        .build();
+    let paste = adw::SwitchRow::builder()
+        .title("Paste when picked")
+        .subtitle("Choosing an item also pastes it into the window you were typing in")
+        .active(s.paste)
+        .visible(gnome)
+        .build();
+    let open = adw::ActionRow::builder().title("Open the pop-up now").activatable(true).build();
+    open.add_suffix(&w::icon("arrow-up-right", 16));
+    open.connect_activated(|_| {
+        let _ = std::process::Command::new(forgekit_core::shortcuts::bin_path("forgekit"))
+            .args(["clipboard", "open"])
+            .spawn();
+    });
+    for r in [&panel, &paste] {
+        rows.append(r);
+        let (panel, paste, a) = (panel.clone(), paste.clone(), app.clone());
+        r.connect_active_notify(move |_| {
+            let mut s = clipstack::Settings::load().unwrap_or_default();
+            s.panel_icon = panel.is_active();
+            s.paste = paste.is_active();
+            match s.save() {
+                Ok(()) => forgekit_core::desktop::write_config(None),
+                Err(e) => a.toast(&format!("{e:#}")),
+            }
+        });
+    }
+    rows.append(&open);
+    pop_body.append(&rows);
+    cards.push(pop_card.upcast());
 
     // ---- settings
     let (set_card, set_body) = w::card("Limits", "Older items are removed automatically. Pinned items never are.");
@@ -675,27 +720,59 @@ pub fn glyphgrab(app: &Rc<App>) -> Cards {
 
 // ------------------------------------------------------------------ Glance
 
-fn nautilus_script() -> std::path::PathBuf {
-    glib::user_data_dir().join("nautilus/scripts/Preview with Glance")
-}
-
 pub fn glance(app: &Rc<App>) -> Cards {
+    use forgekit_core::tools::glance as g;
+    // ---- Space in Files
+    let space = hbox(14);
+    space.add_css_class("fk-card");
+    let (icon, tone, title, text) = if g::sushi_installed() {
+        (
+            "info-circle",
+            "",
+            "GNOME Sushi handles Space in Files",
+            "Sushi is installed and previews files when you press Space. Remove it to use Glance instead.",
+        )
+    } else if g::previewer_installed() {
+        (
+            "circle-check",
+            "ok",
+            "Press Space in Files",
+            "Select a picture, PDF or text file in Files and press Space. Arrow keys step through the folder; Space or Esc closes it. If Files was already open, close it once so it notices Glance.",
+        )
+    } else {
+        ("alert-triangle", "warn", "Switch Glance on", "Turn on the switch above to preview with Space in Files.")
+    };
+    space.append(&w::icon_tile(icon, false, tone));
+    let t = vbox(2);
+    t.set_hexpand(true);
+    t.append(&w::label(title, &["fk-card-title"]));
+    let l = w::label(text, &["dim"]);
+    l.set_wrap(true);
+    t.append(&l);
+    space.append(&t);
+    let keycap = w::label("Space", &["fk-kbd"]);
+    keycap.set_valign(gtk::Align::Center);
+    space.append(&keycap);
+
+    // ---- try it
     let zone = vbox(10);
     zone.add_css_class("fk-dropzone");
     zone.append(&w::empty_state(
         "eye",
         "Drop a file here to preview it",
-        "Images, video, audio, text and code, PDFs, archives and folders.",
+        "Pictures (PNG, JPEG, WebP, GIF…), PDFs, and text or code files.",
     ));
     let choose = w::button("Choose a file…", Some("folder-open"), "suggested-action");
     choose.add_css_class("pill");
     choose.set_halign(gtk::Align::Center);
     zone.append(&choose);
     let open = {
-        let win = app.window.clone();
+        let (win, a) = (app.window.clone(), app.clone());
         Rc::new(move |v: Vec<std::path::PathBuf>| {
-            if let (Some(p), Some(a)) = (v.first(), win.application().and_downcast::<adw::Application>()) {
-                crate::glance::open(&a, p);
+            if let (Some(p), Some(app)) = (v.first(), win.application().and_downcast::<adw::Application>())
+                && !crate::glance::open(&app, p)
+            {
+                a.toast("Glance previews pictures and documents");
             }
         })
     };
@@ -724,35 +801,5 @@ pub fn glance(app: &Rc<App>) -> Cards {
         });
     }
     zone.add_controller(target);
-
-    let (card, body) = w::card("Use it from your file manager", "");
-    let rows = boxed_list();
-    let script = adw::SwitchRow::builder()
-        .title("Add to Files (Nautilus)")
-        .subtitle("Right-click a file → Scripts → Preview with Glance")
-        .active(nautilus_script().exists())
-        .build();
-    let a = app.clone();
-    script.connect_active_notify(move |r| {
-        let p = nautilus_script();
-        let res = if r.is_active() {
-            std::fs::create_dir_all(p.parent().unwrap()).and_then(|_| {
-                std::fs::write(&p, "#!/bin/sh\n# Added by Forgekit\nexec forgekit glance \"$1\"\n")?;
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755))
-            })
-        } else {
-            std::fs::remove_file(&p)
-        };
-        if let Err(e) = res {
-            a.toast(&format!("{e}"));
-        }
-    });
-    rows.append(&script);
-    let cmd = adw::ActionRow::builder().title("From a terminal or shortcut").build();
-    let a = app.clone();
-    cmd.add_suffix(&w::command_chip("forgekit glance FILE", move || a.toast("Command copied")));
-    rows.append(&cmd);
-    body.append(&rows);
-    vec![zone.upcast(), card.upcast()]
+    vec![space.upcast(), zone.upcast()]
 }

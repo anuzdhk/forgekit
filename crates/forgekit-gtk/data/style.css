@@ -81,6 +81,7 @@
 .fk-icon-tile.warn { background: color-mix(in srgb, var(--warning-color) 18%, transparent); color: var(--warning-color); }
 .fk-icon-tile.off { background: var(--fk-hover); color: var(--fk-muted); }
 .fk-icon-tile.err { background: color-mix(in srgb, var(--error-color) 16%, transparent); color: var(--error-color); }
+.fk-icon-tile.accent { background: var(--accent-bg-color); color: var(--accent-fg-color); }
 .fk-hero-title { font-size: 1.55em; font-weight: 800; letter-spacing: -0.3px; }
 
 /* Status pills */
@@ -200,23 +201,58 @@ button.pill.fk-chip-toggle:checked:hover {
 /* Inline text buttons ("Add keyboard shortcut") */
 button.fk-link { padding: 2px 6px; min-height: 24px; color: var(--accent-color); font-weight: 600; }
 
-/* Stage and Caliper (fullscreen frozen screen) */
-window.fk-frozen, window.fk-frozen > * { background: black; }
-.fk-stage-bar {
-  background: rgba(20, 22, 28, 0.92);
-  color: white;
-  border-radius: 14px;
-  padding: 6px 8px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+/* Spark: the Spotlight-style search bar */
+window.fk-spark { background: transparent; box-shadow: none; }
+.fk-spark-panel {
+  background: var(--window-bg-color);
+  border: 1px solid var(--fk-hairline);
+  border-radius: 20px;
+  margin: 14px;
+  padding: 6px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.2);
 }
-.fk-stage-bar button { color: white; min-width: 34px; min-height: 34px; }
-.fk-stage-bar button:checked { background: rgba(255, 255, 255, 0.18); }
-.fk-stage-bar separator { margin: 6px 4px; background: rgba(255, 255, 255, 0.2); }
-.fk-stage-bar .fk-swatch.selected { border-color: white; }
-.fk-stage-hint {
-  background: rgba(20, 22, 28, 0.85);
-  color: white;
-  border-radius: 999px;
-  padding: 8px 16px;
-  font-weight: 600;
+.fk-spark-bar { padding: 10px 14px; }
+.fk-spark-mark { color: var(--accent-color); }
+entry.fk-spark-entry, entry.fk-spark-entry:focus-within {
+  background: transparent;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  font-size: 1.55em;
+  font-weight: 500;
+  min-height: 40px;
+  padding: 0;
 }
+.fk-spark-list {
+  background: transparent;
+  border-top: 1px solid var(--fk-hairline);
+  padding: 6px 0 2px 0;
+}
+.fk-spark-list > row { border-radius: 12px; padding: 8px 12px; margin: 1px 0; }
+.fk-spark-list > row:selected { background: var(--accent-bg-color); color: var(--accent-fg-color); }
+.fk-spark-list > row:selected .dim { color: color-mix(in srgb, var(--accent-fg-color) 75%, transparent); }
+.fk-spark-title { font-weight: 600; font-size: 1.05em; }
+.fk-spark-glyph {
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 9px;
+  background: var(--fk-hover);
+}
+.fk-spark-hint { font-size: 0.85em; padding: 4px 16px 8px 16px; }
+
+/* Clipboard pop-up (Win+V style) */
+.fk-clip-panel { padding: 14px; }
+.fk-clip-list { background: transparent; }
+.fk-clip-list > row { padding: 0; margin: 0 0 8px 0; border-radius: 12px; background: transparent; }
+.fk-clip-list > row:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; }
+.fk-clip-item {
+  background: var(--card-bg-color);
+  border: 1px solid var(--fk-hairline);
+  border-radius: 12px;
+  padding: 10px 6px 10px 12px;
+}
+.fk-clip-list > row:hover .fk-clip-item { border-color: var(--accent-color); }
+
+/* Home: Clean PC */
+.fk-clean-amount { font-size: 1.35em; font-weight: 800; letter-spacing: -0.3px; }
+.fk-clean { background: linear-gradient(135deg, color-mix(in srgb, var(--accent-bg-color) 16%, var(--card-bg-color)), var(--card-bg-color) 70%); }

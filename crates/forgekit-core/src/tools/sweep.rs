@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
     PackageCache,
@@ -30,6 +30,32 @@ pub struct Item {
     pub recommended: bool,
     /// Needs administrator rights.
     pub root: bool,
+}
+
+/// What the user ticked on the Sweep page; "Clean PC" on Home cleans these.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    /// `None` until the user changes a tick: recommended items are used.
+    pub selected: Option<Vec<Kind>>,
+}
+
+impl Settings {
+    pub fn load() -> anyhow::Result<Self> {
+        crate::settings::load("sweep")
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        crate::settings::save("sweep", self)
+    }
+
+    /// Whether `item` should be cleaned.
+    pub fn picks(&self, item: &Item) -> bool {
+        match &self.selected {
+            Some(kinds) => kinds.contains(&item.kind),
+            None => item.recommended,
+        }
+    }
 }
 
 pub fn dir_size(p: &Path) -> u64 {

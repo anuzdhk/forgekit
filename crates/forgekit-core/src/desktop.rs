@@ -130,19 +130,21 @@ pub fn write_config(app: Option<&str>) {
     let s = shelf::Settings::load().unwrap_or_default();
     let m = mosaic::Settings::load().unwrap_or_default();
     let p = mosaic::PinSettings::load().unwrap_or_default();
-    let b = crate::tools::beacon::Settings::load().unwrap_or_default();
-    let beacon_on = crate::settings::General::load().unwrap_or_default().is_enabled("beacon");
-    let zones: Vec<[f64; 4]> = m.zones().iter().map(|z| [z.x, z.y, z.w, z.h]).collect();
+    let c = crate::tools::clipstack::Settings::load().unwrap_or_default();
+    let clip_on = crate::settings::General::load().unwrap_or_default().is_enabled("clipstack");
+    let rects = |zs: &[mosaic::Zone]| zs.iter().map(|z| [z.x, z.y, z.w, z.h]).collect::<Vec<_>>();
+    // Every layout, for the picker that drops down at the top of the screen.
+    let layouts: Vec<_> =
+        mosaic::PRESETS.iter().map(|(id, name, zs)| json!({ "id": id, "name": name, "zones": rects(zs) })).collect();
     let v = json!({
         "app": app,
         "auto_show": s.auto_show,
         "files_only": s.files_only,
         "corner": s.corner,
         "delay_ms": 350,
-        "mosaic": { "zones": zones, "gap": m.gap, "shift_drag": m.shift_drag },
+        "mosaic": { "zones": rects(&m.zones()), "layouts": layouts, "gap": m.gap, "shift_drag": m.shift_drag },
         "pin": { "border": p.border, "color": p.color },
-        // Beacon watches the pointer only while the tool is switched on.
-        "beacon": { "clicks": beacon_on && b.clicks, "double_ctrl": beacon_on && b.double_ctrl },
+        "clipboard": { "panel": clip_on && c.panel_icon, "paste": c.paste },
     });
     let _ = std::fs::create_dir_all(crate::paths::config_dir());
     let _ = std::fs::write(config_file(), format!("{v:#}\n"));
@@ -184,6 +186,12 @@ pub fn pin_toggle(b: Backend) -> anyhow::Result<Option<bool>> {
             Ok(None)
         }
     }
+}
+
+/// Drop down the clipboard history from the top-bar icon. `false` when the
+/// extension isn't running (or is an older copy without the menu).
+pub fn open_clipboard() -> bool {
+    shell_call("OpenClipboard", &()).is_ok()
 }
 
 /// Move the focused window into zone `index` (0-based) of the current layout.

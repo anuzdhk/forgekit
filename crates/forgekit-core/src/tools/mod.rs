@@ -1,9 +1,6 @@
-pub mod beacon;
 pub mod bootpilot;
-pub mod caliper;
 pub mod cheatsheet;
 pub mod clipstack;
-pub mod dusk;
 pub mod envy;
 pub mod eyedrop;
 pub mod glance;

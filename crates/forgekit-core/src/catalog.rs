@@ -34,20 +34,12 @@ pub enum Category {
     System,
     Input,
     Windows,
-    Presenting,
     Extras,
 }
 
 impl Category {
-    pub const ALL: [Category; 7] = [
-        Category::Everyday,
-        Category::Files,
-        Category::System,
-        Category::Input,
-        Category::Windows,
-        Category::Presenting,
-        Category::Extras,
-    ];
+    pub const ALL: [Category; 6] =
+        [Category::Everyday, Category::Files, Category::System, Category::Input, Category::Windows, Category::Extras];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -56,7 +48,6 @@ impl Category {
             Category::System => "System",
             Category::Input => "Keyboard",
             Category::Windows => "Windows",
-            Category::Presenting => "Presenting",
             Category::Extras => "Maintenance",
         }
     }
@@ -79,7 +70,7 @@ pub struct Tool {
 }
 
 /// The release this build implements.
-pub const CURRENT: &str = "0.6";
+pub const CURRENT: &str = "0.7";
 
 impl Tool {
     /// Not in this build yet.
@@ -101,7 +92,11 @@ fn version_key(v: &str) -> (u32, u32) {
 }
 
 pub fn find(id: &str) -> Option<&'static Tool> {
-    CATALOG.iter().find(|t| t.id.eq_ignore_ascii_case(id) || t.name.eq_ignore_ascii_case(id))
+    CATALOG.iter().find(|t| {
+        t.id.eq_ignore_ascii_case(id)
+            || t.name.eq_ignore_ascii_case(id)
+            || t.name.replace(' ', "-").eq_ignore_ascii_case(id)
+    })
 }
 
 fn always(_: &Capabilities) -> Status {
@@ -178,17 +173,9 @@ fn clipstack(c: &Capabilities) -> Status {
     if c.has_data_control() || std::env::var_os("DISPLAY").is_some() {
         Status::Supported
     } else if c.desktop == Desktop::Gnome {
-        Status::NeedsSetup("Clipstack uses XWayland on GNOME; it isn't running in this session".into())
+        Status::NeedsSetup("Clipboard history uses XWayland on GNOME; it isn't running in this session".into())
     } else {
         Status::Unsupported("This compositor has no clipboard data-control protocol".into())
-    }
-}
-
-fn dusk(c: &Capabilities) -> Status {
-    match c.desktop {
-        Desktop::Gnome | Desktop::Cinnamon | Desktop::Kde | Desktop::Xfce => Status::Supported,
-        _ if crate::paths::which("gsettings").is_some() => Status::Supported,
-        _ => Status::Unsupported("Don't know how to switch this desktop's theme".into()),
     }
 }
 
@@ -213,18 +200,7 @@ fn window_backend(c: &Capabilities) -> Status {
     match c.desktop {
         Desktop::Gnome if c.forgekit_shell => Status::Supported,
         Desktop::Gnome => Status::NeedsSetup(
-            "Needs the Forgekit GNOME extension: install it from the Mosaic, Pin or DropShelf page in Forgekit, then log out and back in once".into(),
-        ),
-        Desktop::Kde => Status::Supported,
-        _ => Status::Unsupported("Works on GNOME and KDE Plasma so far".into()),
-    }
-}
-
-fn beacon(c: &Capabilities) -> Status {
-    match c.desktop {
-        Desktop::Gnome if c.forgekit_shell => Status::Supported,
-        Desktop::Gnome => Status::NeedsSetup(
-            "Needs the Forgekit GNOME extension: install it from the Beacon page in Forgekit, then log out and back in once".into(),
+            "Needs the Forgekit GNOME extension: install it from the Mosaic, Pin or Bundle page in Forgekit, then log out and back in once".into(),
         ),
         Desktop::Kde => Status::Supported,
         _ => Status::Unsupported("Works on GNOME and KDE Plasma so far".into()),
@@ -293,7 +269,7 @@ pub static CATALOG: &[Tool] = &[
     ),
     tool!(
         "clipstack",
-        "Clipstack",
+        "Clipboard",
         Universal,
         Everyday,
         "clipboard-list",
@@ -303,7 +279,7 @@ pub static CATALOG: &[Tool] = &[
     ),
     tool!(
         "shelf",
-        "DropShelf",
+        "Bundle",
         Universal,
         Everyday,
         "stack-2",
@@ -373,7 +349,6 @@ pub static CATALOG: &[Tool] = &[
         nightowl,
         "Keep the PC awake, for a while or while a process runs"
     ),
-    tool!("dusk", "Dusk", Universal, System, "sun-moon", "0.2", dusk, "Automatic light/dark theme by time or sunset"),
     tool!(
         "hostbook",
         "Hostbook",
@@ -429,36 +404,6 @@ pub static CATALOG: &[Tool] = &[
     ),
     tool!("roam", "Roam", Desktop, Windows, "devices", "0.6", roam, "Share one mouse and keyboard across PCs"),
     tool!(
-        "stage",
-        "Stage",
-        Universal,
-        Presenting,
-        "presentation",
-        "0.5",
-        screenshot_portal,
-        "Zoom into and draw on your screen while presenting"
-    ),
-    tool!(
-        "beacon",
-        "Beacon",
-        Desktop,
-        Presenting,
-        "pointer",
-        "0.5",
-        beacon,
-        "Find the mouse pointer and show your clicks"
-    ),
-    tool!(
-        "caliper",
-        "Caliper",
-        Universal,
-        Presenting,
-        "ruler-measure",
-        "0.5",
-        screenshot_portal,
-        "Measure pixel distances on screen"
-    ),
-    tool!(
         "sweep",
         "Sweep",
         LinuxExtra,
@@ -470,7 +415,7 @@ pub static CATALOG: &[Tool] = &[
     ),
     tool!(
         "bootpilot",
-        "Bootpilot",
+        "Startup Apps",
         LinuxExtra,
         Extras,
         "rocket",
@@ -480,7 +425,7 @@ pub static CATALOG: &[Tool] = &[
     ),
     tool!(
         "servicedeck",
-        "Servicedeck",
+        "Services",
         LinuxExtra,
         Extras,
         "server-cog",
@@ -510,7 +455,8 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), CATALOG.len());
-        assert_eq!(find("DropShelf").unwrap().id, "shelf");
+        assert_eq!(find("Bundle").unwrap().id, "shelf");
+        assert_eq!(find("startup-apps").unwrap().id, "bootpilot");
     }
 
     #[test]
