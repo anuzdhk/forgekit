@@ -151,6 +151,8 @@ pub fn tool_page(tool: &'static Tool, app: &Rc<App>) -> gtk::Widget {
         pill.add_css_class(tone);
         if tool.id == "clipstack" {
             util::daemon_call("/org/forgekit/Clipstack", "org.forgekit.Clipstack1", "Reload");
+        }
+        if matches!(tool.id, "clipstack" | "shelf") {
             // Shows or hides the top-bar icon.
             forgekit_core::desktop::write_config(None);
         }

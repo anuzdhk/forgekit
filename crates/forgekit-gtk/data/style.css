@@ -8,6 +8,9 @@
   --fk-radius: 14px;
 }
 
+/* Mona Sans ships with the app (fonts.rs); everything inherits it. */
+window, popover, tooltip { font-family: "Mona Sans", "Mona Sans VF", sans-serif; }
+
 .dim { color: var(--fk-muted); }
 .mono { font-family: monospace; }
 
@@ -207,9 +210,11 @@ window.fk-spark { background: transparent; box-shadow: none; }
   background: var(--window-bg-color);
   border: 1px solid var(--fk-hairline);
   border-radius: 20px;
-  margin: 14px;
+  /* The window around the panel is transparent; the shadow has to fit
+   * inside this margin or it gets cut off in a hard line. */
+  margin: 26px;
   padding: 6px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.16);
 }
 .fk-spark-bar { padding: 10px 14px; }
 .fk-spark-mark { color: var(--accent-color); }

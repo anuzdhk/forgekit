@@ -8,6 +8,7 @@
 
 mod cheatsheet;
 mod clipboard;
+mod fonts;
 mod glance;
 mod home;
 mod pages;
@@ -36,6 +37,7 @@ const RESOURCES: &str = "/io/github/anuzdhk/Forgekit";
 
 fn main() -> glib::ExitCode {
     quiet_gtk_baseline_warnings();
+    fonts::register();
     gio::resources_register_include!("forgekit.gresource").expect("bundled resources");
     let app =
         adw::Application::builder().application_id(APP_ID).flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE).build();
@@ -63,6 +65,7 @@ fn main() -> glib::ExitCode {
                 shelf::open(app, args[1..].iter().filter(|a| !a.starts_with("--")).map(abs).collect(), auto)
             }
             Some("--shelf-dismiss") => shelf::dismiss(),
+            Some("--shelf-toggle") => shelf::toggle(app),
             Some("--cheatsheet") => cheatsheet::open(app),
             Some("--spark") => spark::toggle(app),
             Some("--clipboard") => clipboard::toggle(app),

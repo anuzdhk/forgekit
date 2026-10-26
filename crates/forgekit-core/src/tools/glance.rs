@@ -6,8 +6,9 @@ use std::process::Command;
 
 use serde::Serialize;
 
-/// The D-Bus name GNOME Files sends Space to.
-pub const PREVIEWER_NAME: &str = "org.gnome.NautilusPreviewer2";
+/// The D-Bus name GNOME Files sends Space to (GNOME Sushi's). Only the
+/// interface carries the "2".
+pub const PREVIEWER_NAME: &str = "org.gnome.NautilusPreviewer";
 pub const PREVIEWER_IFACE: &str = "org.gnome.NautilusPreviewer2";
 pub const PREVIEWER_PATH: &str = "/org/gnome/NautilusPreviewer";
 
@@ -25,6 +26,8 @@ pub fn sushi_installed() -> bool {
 /// Let D-Bus start `app --previewer` when Files asks for a preview, or stop
 /// that when `app` is `None` (Glance switched off).
 pub fn set_previewer(app: Option<&str>) -> anyhow::Result<()> {
+    // v0.7 wrote its file under the interface name, which Files never asks for.
+    let _ = std::fs::remove_file(previewer_service().with_file_name("org.gnome.NautilusPreviewer2.service"));
     let file = previewer_service();
     match app {
         Some(app) if !sushi_installed() => {

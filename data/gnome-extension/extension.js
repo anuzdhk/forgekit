@@ -5,8 +5,9 @@
 //   Clipboard  A top-bar icon whose menu lists clipboard history (from forgekitd);
 //              `OpenClipboard()` drops it down from a keyboard shortcut. Picking an item
 //              copies it and pastes it into the window you were in.
-//   Bundle     When you start dragging files, open Bundle (`forgekit-gtk --shelf --auto`)
-//              in your chosen corner, and close it if nothing gets dropped on it.
+//   Bundle     A top-bar icon that drops the Bundle window down below it. Also, when you
+//              start dragging files, open Bundle (`forgekit-gtk --shelf --auto`) in your
+//              chosen corner, and close it if nothing gets dropped on it.
 //   Mosaic     Hold Shift while dragging a window to show zones; drop it into one. Drag it
 //              to the top middle of the screen for a picker with every layout instead.
 //              `Snap(n)` over D-Bus moves the focused window into zone n (keyboard shortcuts).
@@ -57,6 +58,7 @@ const DEFAULTS = {
     mosaic: {zones: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]], layouts: [], gap: 8, shift_drag: true},
     pin: {border: true, color: '#b4ff96'},
     clipboard: {panel: false, paste: true},
+    bundle: {panel: false},
 };
 
 const IFACE = `<node>
@@ -96,6 +98,8 @@ export default class ForgekitExtension extends Extension {
         this._pollId = 0;
         this._flyout = null;
         this._clip = null;
+        this._bundle = null;
+        this._bundleClicked = 0;
         this._pending = [];
         this._cfg = this._readConfig();
         // Re-read the config whenever the app saves it.
@@ -104,8 +108,10 @@ export default class ForgekitExtension extends Extension {
         this._monitorId = this._monitor.connect('changed', () => {
             this._cfg = this._readConfig();
             this._syncClipboard();
+            this._syncBundle();
         });
         this._syncClipboard();
+        this._syncBundle();
 
         this._signals = [
             [Main.xdndHandler, Main.xdndHandler.connect('drag-begin', () => this._onDragBegin())],
@@ -132,6 +138,8 @@ export default class ForgekitExtension extends Extension {
         this._monitor = null;
         this._clip?.destroy();
         this._clip = null;
+        this._bundle?.destroy();
+        this._bundle = null;
         this._vkbd?.run_dispose();
         this._vkbd = null;
         this._stopPolling();
@@ -160,6 +168,7 @@ export default class ForgekitExtension extends Extension {
                     mosaic: {...DEFAULTS.mosaic, ...c.mosaic},
                     pin: {...DEFAULTS.pin, ...c.pin},
                     clipboard: {...DEFAULTS.clipboard, ...c.clipboard},
+                    bundle: {...DEFAULTS.bundle, ...c.bundle},
                 };
             }
         } catch (e) {
@@ -499,6 +508,38 @@ export default class ForgekitExtension extends Extension {
         }
     }
 
+    // ---------------------------------------------------------------- Bundle top-bar icon
+
+    _syncBundle() {
+        const want = this._config().bundle.panel;
+        if (want && !this._bundle) {
+            // No menu: the icon opens (or closes) the Bundle window itself.
+            this._bundle = new PanelMenu.Button(0.5, 'Forgekit Bundle', true);
+            this._bundle.add_child(new St.Icon({icon_name: 'emblem-documents-symbolic', style_class: 'system-status-icon'}));
+            this._bundle.connect('button-press-event', () => {
+                this._toggleBundle();
+                return Clutter.EVENT_STOP;
+            });
+            this._bundle.connect('touch-event', (_a, event) => {
+                if (event.type() === Clutter.EventType.TOUCH_BEGIN)
+                    this._toggleBundle();
+                return Clutter.EVENT_STOP;
+            });
+            Main.panel.addToStatusArea('forgekit-bundle', this._bundle);
+        } else if (!want && this._bundle) {
+            this._bundle.destroy();
+            this._bundle = null;
+        }
+    }
+
+    _toggleBundle() {
+        const app = this._config().app;
+        if (!app)
+            return;
+        this._bundleClicked = Date.now();
+        this._spawn([app, '--shelf-toggle']);
+    }
+
     OpenClipboard() {
         if (this._clip) {
             this._clip.menu.open();
@@ -690,11 +731,15 @@ export default class ForgekitExtension extends Extension {
             actor.disconnect(id);
             const title = ours ? win.get_title() : null;
             if (title === SHELF_TITLE) {
-                this._placeShelf(win);
+                // Opened from the top-bar icon: drop down below it.
+                if (this._bundle && Date.now() - this._bundleClicked < 4000)
+                    this._placeBelow(win, this._bundle);
+                else
+                    this._placeShelf(win);
                 return;
             }
             if (title === SPARK_TITLE || title === CLIP_TITLE) {
-                this._placeCentered(win, title === SPARK_TITLE ? 0.2 : 0.12);
+                this._placeCentered(win, title === SPARK_TITLE ? 0.12 : 0.08);
                 return;
             }
             const appId = Shell.WindowTracker.get_default().get_window_app(win)?.get_id() ?? '';
@@ -777,6 +822,19 @@ export default class ForgekitExtension extends Extension {
         const x = area.x + Math.round((area.width - rect.width) / 2);
         const y = area.y + Math.round(area.height * top);
         win.move_frame(false, x, y);
+        win.make_above();
+        win.activate(global.get_current_time());
+    }
+
+    /// Just below a top-bar button, like its menu would be.
+    _placeBelow(win, button) {
+        const [bx] = button.get_transformed_position();
+        const monitor = Main.layoutManager.primaryIndex;
+        const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
+        const rect = win.get_frame_rect();
+        const center = bx + button.width / 2;
+        const x = Math.round(Math.min(Math.max(center - rect.width / 2, area.x + 8), area.x + area.width - rect.width - 8));
+        win.move_frame(false, x, area.y + 6);
         win.make_above();
         win.activate(global.get_current_time());
     }

@@ -69,11 +69,19 @@ pub struct Settings {
     pub files_only: bool,
     /// `bottom-right`, `bottom-left`, `top-right` or `top-left`.
     pub corner: String,
+    /// Show the Bundle icon in the top bar (GNOME extension).
+    pub panel_icon: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { copy_files: false, auto_show: true, files_only: true, corner: "bottom-right".into() }
+        Settings {
+            copy_files: false,
+            auto_show: true,
+            files_only: true,
+            corner: "bottom-right".into(),
+            panel_icon: true,
+        }
     }
 }
 

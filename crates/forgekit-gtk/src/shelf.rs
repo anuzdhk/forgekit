@@ -53,6 +53,14 @@ pub fn open(app: &adw::Application, files: Vec<PathBuf>, auto: bool) {
     s.window.present();
 }
 
+/// The top-bar icon: open Bundle, or close it when it's already up.
+pub fn toggle(app: &adw::Application) {
+    match OPEN.with_borrow(|o| o.clone()) {
+        Some(s) => s.window.close(),
+        None => open(app, Vec::new(), false),
+    }
+}
+
 /// A drag that opened the shelf ended: close it unless something was dropped.
 pub fn dismiss() {
     if let Some(s) = OPEN.with_borrow(|o| o.clone())

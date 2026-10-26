@@ -484,8 +484,8 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
 
     let gnome = app.caps.desktop == Desktop::Gnome && app.caps.session == Session::Wayland;
     let (card, body) = w::card(
-        "Pop up while dragging",
-        "Start dragging files and the shelf appears in a corner, on top of everything. It closes again if you don't drop anything on it.",
+        "Top bar and dragging",
+        "Open Bundle from its icon in the top bar, or start dragging files and it appears in a corner on top of everything (closing again if you drop nothing).",
     );
     if !gnome {
         body.append(&w::label(
@@ -499,6 +499,11 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
     rows.append(&super::extension_row(app, "shelf"));
 
     let s = shelf::Settings::load().unwrap_or_default();
+    let panel = adw::SwitchRow::builder()
+        .title("Icon in the top bar")
+        .subtitle("Click it to drop Bundle down below the top bar")
+        .active(s.panel_icon)
+        .build();
     let auto = adw::SwitchRow::builder().title("Show when I start dragging").active(s.auto_show).build();
     let files = adw::SwitchRow::builder()
         .title("Only for files")
@@ -511,9 +516,10 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
     files.set_sensitive(s.auto_show);
 
     let save = {
-        let (a, auto, files, corner) = (app.clone(), auto.clone(), files.clone(), corner.clone());
+        let (a, panel, auto, files, corner) = (app.clone(), panel.clone(), auto.clone(), files.clone(), corner.clone());
         Rc::new(move || {
             let mut st = shelf::Settings::load().unwrap_or_default();
+            st.panel_icon = panel.is_active();
             st.auto_show = auto.is_active();
             st.files_only = files.is_active();
             st.corner = shelf::CORNERS[corner.selected() as usize].0.to_string();
@@ -524,11 +530,12 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
             }
         })
     };
-    for r in [&auto, &files] {
+    for r in [&panel, &auto, &files] {
         let save = save.clone();
         r.connect_active_notify(move |_| save());
     }
     corner.connect_selected_notify(move |_| save());
+    rows.append(&panel);
     rows.append(&auto);
     rows.append(&files);
     rows.append(&corner);

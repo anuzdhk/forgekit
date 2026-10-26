@@ -19,7 +19,7 @@ Status: **v0.6**: every tool in the plan is in. See [docs/PLAN.md](docs/PLAN.md)
 | Bundle | `forgekit bundle [FILE…]` | A small window that holds files, text and links while you switch apps; drag one or all out |
 | Eyedrop | `forgekit eyedrop [-f hex\|rgb\|hsl]`, `--history` | Pick a screen color via the Screenshot portal |
 | Glyphgrab | `forgekit glyphgrab [-l eng]`, `--image FILE` | Select an area, OCR it with Tesseract |
-| Glance | Space in Files, or `forgekit glance FILE` | Quick look at pictures, PDFs and text/code. Answers Space in GNOME Files when GNOME Sushi isn't installed; arrow keys step through the folder |
+| Glance | Space in Files, or `forgekit glance FILE` | Quick look at pictures, PDFs and text/code. Answers Space in GNOME Files (as `org.gnome.NautilusPreviewer`) when GNOME Sushi isn't installed; arrow keys step through the folder |
 | Relabel | `forgekit relabel *.jpg -f IMG_ -r trip_ [-x] [-t "{n:3}_{name}"] [--apply]` | Bulk rename, preview by default, handles swaps and collisions |
 | Shrinkray | `forgekit shrinkray *.png -w 1280 -f webp` | Resize to fit and convert |
 | Lockpick | `forgekit lockpick PATH [--close PID [--force]]` | Which processes hold a file or folder (fds, cwd, mmaps) |
@@ -139,4 +139,4 @@ busctl --user call org.forgekit.Daemon /org/forgekit/Clipstack org.forgekit.Clip
 
 ## License
 
-GPL-3.0-or-later. Tabler Icons are MIT ([license](crates/forgekit-gtk/data/icons/TABLER-LICENSE)).
+GPL-3.0-or-later. Tabler Icons are MIT ([license](crates/forgekit-gtk/data/icons/TABLER-LICENSE)). The app font, [Mona Sans](https://github.com/github/mona-sans), is under the SIL Open Font License ([license](crates/forgekit-gtk/data/fonts/OFL.txt)).

@@ -1,5 +1,5 @@
 //! Glance as the Files app's previewer. GNOME Files (Nautilus) sends Space
-//! to whoever owns `org.gnome.NautilusPreviewer2` (normally GNOME Sushi);
+//! to whoever owns `org.gnome.NautilusPreviewer` (normally GNOME Sushi);
 //! Forgekit answers when Sushi isn't installed. D-Bus starts us on demand
 //! through a service file (`forgekit_core::tools::glance::install_previewer`).
 //!

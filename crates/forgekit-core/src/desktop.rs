@@ -131,7 +131,9 @@ pub fn write_config(app: Option<&str>) {
     let m = mosaic::Settings::load().unwrap_or_default();
     let p = mosaic::PinSettings::load().unwrap_or_default();
     let c = crate::tools::clipstack::Settings::load().unwrap_or_default();
-    let clip_on = crate::settings::General::load().unwrap_or_default().is_enabled("clipstack");
+    let general = crate::settings::General::load().unwrap_or_default();
+    let clip_on = general.is_enabled("clipstack");
+    let bundle_on = general.is_enabled("shelf");
     let rects = |zs: &[mosaic::Zone]| zs.iter().map(|z| [z.x, z.y, z.w, z.h]).collect::<Vec<_>>();
     // Every layout, for the picker that drops down at the top of the screen.
     let layouts: Vec<_> =
@@ -145,6 +147,7 @@ pub fn write_config(app: Option<&str>) {
         "mosaic": { "zones": rects(&m.zones()), "layouts": layouts, "gap": m.gap, "shift_drag": m.shift_drag },
         "pin": { "border": p.border, "color": p.color },
         "clipboard": { "panel": clip_on && c.panel_icon, "paste": c.paste },
+        "bundle": { "panel": bundle_on && s.panel_icon },
     });
     let _ = std::fs::create_dir_all(crate::paths::config_dir());
     let _ = std::fs::write(config_file(), format!("{v:#}\n"));
