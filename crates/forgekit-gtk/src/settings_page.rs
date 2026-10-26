@@ -369,8 +369,8 @@ fn system(app: &Rc<App>) -> gtk::Box {
 fn about(app: &Rc<App>) -> gtk::Box {
     let (card, body) = w::card("About", "");
     let top = hbox(14);
-    let mark = w::icon("hammer", 30);
-    mark.add_css_class("fk-brand-mark");
+    let mark = gtk::Image::from_icon_name(crate::APP_ID);
+    mark.set_pixel_size(56);
     mark.set_valign(gtk::Align::Center);
     top.append(&mark);
     let t = vbox(2);

@@ -16,13 +16,7 @@
 .fk-sidebar { background: var(--sidebar-bg-color); }
 
 .fk-brand { padding: 14px 14px 6px 16px; }
-.fk-brand-mark {
-  padding: 7px;
-  -gtk-icon-size: 20px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent-bg-color), color-mix(in srgb, var(--accent-bg-color) 55%, #000));
-  color: var(--accent-fg-color);
-}
+
 .fk-brand-name { font-weight: 800; font-size: 1.25em; letter-spacing: -0.3px; }
 .fk-brand-version { font-size: 0.78em; color: var(--fk-muted); }
 

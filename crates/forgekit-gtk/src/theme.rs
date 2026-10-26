@@ -57,7 +57,7 @@ pub static THEMES: &[Theme] = &[
         "light",
         "Forge Light",
         p!(
-            false, "#f3f4f7", "#ffffff", "#ffffff", "#1d2130", "#6b7185", "#2563eb", "#ffffff", "#16a34a", "#d97706",
+            false, "#f3f4f7", "#ffffff", "#ffffff", "#1d2130", "#6b7185", "#3a9a2a", "#ffffff", "#16a34a", "#d97706",
             "#dc2626"
         ),
     ),
@@ -65,7 +65,7 @@ pub static THEMES: &[Theme] = &[
         "dark",
         "Forge Dark",
         p!(
-            true, "#101217", "#191c23", "#14161c", "#e6e8ee", "#8b91a3", "#5b8cff", "#ffffff", "#4ade80", "#fbbf24",
+            true, "#101217", "#191c23", "#14161c", "#e6e8ee", "#8b91a3", "#b4ff96", "#1a1a1a", "#4ade80", "#fbbf24",
             "#f87171"
         ),
     ),
@@ -242,6 +242,7 @@ pub const DEFAULT: &str = "dark";
 
 /// Accent overrides offered in Settings (`None` keeps the theme's own).
 pub static ACCENTS: &[(&str, &str)] = &[
+    ("Forge green", "#b4ff96"),
     ("Blue", "#3b82f6"),
     ("Teal", "#14b8a6"),
     ("Green", "#22c55e"),

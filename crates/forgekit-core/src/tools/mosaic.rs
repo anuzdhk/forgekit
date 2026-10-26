@@ -113,7 +113,7 @@ pub struct PinSettings {
 
 impl Default for PinSettings {
     fn default() -> Self {
-        PinSettings { border: true, color: "#3b82f6".into() }
+        PinSettings { border: true, color: "#b4ff96".into() }
     }
 }
 

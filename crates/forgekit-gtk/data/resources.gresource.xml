@@ -2,6 +2,7 @@
 <gresources>
   <gresource prefix="/io/github/anuzdhk/Forgekit">
     <file compressed="true">style.css</file>
+    <file compressed="true" preprocess="xml-stripblanks">icons/scalable/apps/io.github.anuzdhk.Forgekit.svg</file>
     <file compressed="true" preprocess="xml-stripblanks">icons/scalable/actions/tabler-adjustments-horizontal-symbolic.svg</file>
     <file compressed="true" preprocess="xml-stripblanks">icons/scalable/actions/tabler-alert-triangle-symbolic.svg</file>
     <file compressed="true" preprocess="xml-stripblanks">icons/scalable/actions/tabler-apps-symbolic.svg</file>

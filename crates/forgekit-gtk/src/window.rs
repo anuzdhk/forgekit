@@ -86,8 +86,8 @@ impl App {
         // ---- sidebar
         let brand = hbox(10);
         brand.add_css_class("fk-brand");
-        let mark = w::icon("hammer", 20);
-        mark.add_css_class("fk-brand-mark");
+        let mark = gtk::Image::from_icon_name(crate::APP_ID);
+        mark.set_pixel_size(36);
         mark.set_valign(gtk::Align::Center);
         brand.append(&mark);
         let names = vbox(0);

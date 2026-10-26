@@ -94,6 +94,8 @@ fn quiet_gtk_baseline_warnings() {
 fn setup_display() {
     let display = gdk::Display::default().expect("a display");
     gtk::IconTheme::for_display(&display).add_resource_path(&format!("{RESOURCES}/icons"));
+    // The logo, for every window (taskbars, alt-tab).
+    gtk::Window::set_default_icon_name(APP_ID);
     let base = gtk::CssProvider::new();
     base.load_from_resource(&format!("{RESOURCES}/style.css"));
     gtk::style_context_add_provider_for_display(&display, &base, BASE_PRIORITY);

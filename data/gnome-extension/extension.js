@@ -37,7 +37,7 @@ const DEFAULTS = {
     corner: 'bottom-right',
     delay_ms: 350,
     mosaic: {zones: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]], gap: 8, shift_drag: true},
-    pin: {border: true, color: '#3b82f6'},
+    pin: {border: true, color: '#b4ff96'},
     beacon: {clicks: false, double_ctrl: true},
 };
 

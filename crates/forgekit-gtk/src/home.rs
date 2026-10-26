@@ -18,10 +18,6 @@ pub fn build(app: &Rc<App>) -> gtk::Widget {
     let general = forgekit_core::settings::General::load().unwrap_or_default();
     let statuses: Vec<_> = CATALOG.iter().map(|t| (t, t.status(&app.caps), general.is_enabled(t.id))).collect();
     let ready = statuses.iter().filter(|(t, s, on)| !t.is_planned() && s.is_supported() && *on).count();
-    let setup =
-        statuses.iter().filter(|(t, s, on)| !t.is_planned() && *on && matches!(s, Status::NeedsSetup(_))).count();
-    let off = statuses.iter().filter(|(t, _, on)| !t.is_planned() && !on).count();
-    let soon = statuses.iter().filter(|(t, _, _)| t.is_planned()).count();
 
     // ---- greeting
     let head = hbox(16);
@@ -44,45 +40,7 @@ pub fn build(app: &Rc<App>) -> gtk::Widget {
     let desktop = app.caps.desktop_raw.rsplit(':').next().filter(|s| !s.is_empty()).unwrap_or("your desktop");
     text.append(&w::label(&format!("{desktop} on {session} · {ready} tools ready to use"), &["fk-page-subtitle"]));
     head.append(&text);
-    let shelf_btn = w::button("Open DropShelf", Some("stack-2"), "suggested-action");
-    shelf_btn.add_css_class("pill");
-    {
-        let win = app.window.clone();
-        shelf_btn.connect_clicked(move |_| {
-            if let Some(a) = win.application().and_downcast::<adw::Application>() {
-                crate::shelf::open(&a, Vec::new(), false);
-            }
-        });
-    }
-    head.append(&shelf_btn);
     root.append(&head);
-
-    // ---- stats
-    let stats = gtk::FlowBox::builder()
-        .homogeneous(true)
-        .min_children_per_line(2)
-        .max_children_per_line(4)
-        .column_spacing(14)
-        .row_spacing(14)
-        .selection_mode(gtk::SelectionMode::None)
-        .build();
-    for (value, label, icon, tone) in [
-        (ready, "Ready to use", "circle-check", "ok"),
-        (setup, "Need setup", "alert-triangle", "warn"),
-        (off, "Turned off", "eye-off", "off"),
-        (soon, "Coming soon", "clock", ""),
-    ] {
-        let card = hbox(14);
-        card.add_css_class("fk-card");
-        card.add_css_class("fk-stat");
-        card.append(&w::icon_tile(icon, false, tone));
-        let t = vbox(0);
-        t.append(&w::label(&value.to_string(), &["fk-stat-value"]));
-        t.append(&w::label(label, &["fk-stat-label"]));
-        card.append(&t);
-        stats.append(&card);
-    }
-    root.append(&stats);
 
     // ---- quick actions
     root.append(&w::label("Quick actions", &["fk-section-title"]));
