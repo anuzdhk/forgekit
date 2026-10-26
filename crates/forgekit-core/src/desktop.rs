@@ -17,6 +17,8 @@ use crate::tools::shelf;
 pub const UUID: &str = "forgekit@anuzdhk.github.io";
 const METADATA: &str = include_str!("../../../data/gnome-extension/metadata.json");
 const EXTENSION: &str = include_str!("../../../data/gnome-extension/extension.js");
+/// The logo shown in the top bar.
+const ICON: &str = include_str!("../../../data/gnome-extension/forgekit-symbolic.svg");
 /// The D-Bus name the extension owns while it runs.
 pub const SHELL_BUS: &str = "org.forgekit.Shell";
 
@@ -71,6 +73,7 @@ pub fn install(app: Option<&str>) -> anyhow::Result<bool> {
     std::fs::create_dir_all(&d)?;
     std::fs::write(d.join("metadata.json"), METADATA)?;
     std::fs::write(d.join("extension.js"), EXTENSION)?;
+    std::fs::write(d.join("forgekit-symbolic.svg"), ICON)?;
     write_config(app);
     let _ = Command::new("gnome-extensions").args(["enable", UUID]).output();
     // gnome-extensions can't enable what the Shell hasn't loaded yet; add it

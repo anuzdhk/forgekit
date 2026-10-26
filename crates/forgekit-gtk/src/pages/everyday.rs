@@ -242,8 +242,8 @@ pub fn clipstack(app: &Rc<App>) -> Cards {
     }
     let s = clipstack::Settings::load().unwrap_or_default();
     let panel = adw::SwitchRow::builder()
-        .title("Icon in the top bar")
-        .subtitle("Click it, or press the shortcut, to drop the history down from the top bar")
+        .title("In the top-bar menu")
+        .subtitle("Click the Forgekit logo in the top bar, or press the shortcut, to drop the history down")
         .active(s.panel_icon)
         .visible(gnome)
         .build();
@@ -485,7 +485,7 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
     let gnome = app.caps.desktop == Desktop::Gnome && app.caps.session == Session::Wayland;
     let (card, body) = w::card(
         "Top bar and dragging",
-        "Open Bundle from its icon in the top bar, or start dragging files and it appears in a corner on top of everything (closing again if you drop nothing).",
+        "Open Bundle from the Forgekit logo in the top bar, or start dragging files and it appears in a corner on top of everything (closing again if you drop nothing).",
     );
     if !gnome {
         body.append(&w::label(
@@ -500,8 +500,8 @@ fn popup_card(app: &Rc<App>) -> gtk::Widget {
 
     let s = shelf::Settings::load().unwrap_or_default();
     let panel = adw::SwitchRow::builder()
-        .title("Icon in the top bar")
-        .subtitle("Click it to drop Bundle down below the top bar")
+        .title("In the top-bar menu")
+        .subtitle("A Bundle button in the Forgekit logo's menu drops Bundle down below the top bar")
         .active(s.panel_icon)
         .build();
     let auto = adw::SwitchRow::builder().title("Show when I start dragging").active(s.auto_show).build();

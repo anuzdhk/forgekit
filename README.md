@@ -15,7 +15,7 @@ Status: **v0.6**: every tool in the plan is in. See [docs/PLAN.md](docs/PLAN.md)
 | Tool | CLI | What it does |
 |---|---|---|
 | Spark | `forgekit spark` (search bar, Super+Space), `forgekit spark 2+2`, `forgekit spark firefox --run 1` | A Spotlight-style bar: apps, calculator, units, `install <file>`, web search |
-| Clipboard | `forgekit clipboard [open\|list\|copy ID\|show ID\|pin\|unpin\|delete\|clear\|private on\|off]` | Clipboard history for text and images. Super+V drops it down from a top-bar icon (GNOME) or opens a small pop-up; picking an item pastes it |
+| Clipboard | `forgekit clipboard [open\|list\|copy ID\|show ID\|pin\|unpin\|delete\|clear\|private on\|off]` | Clipboard history for text and images. Super+V drops it down from a top-bar icon (the Forgekit logo's menu on GNOME) or opens a small pop-up; picking an item pastes it |
 | Bundle | `forgekit bundle [FILE…]` | A small window that holds files, text and links while you switch apps; drag one or all out |
 | Eyedrop | `forgekit eyedrop [-f hex\|rgb\|hsl]`, `--history` | Pick a screen color via the Screenshot portal |
 | Glyphgrab | `forgekit glyphgrab [-l eng]`, `--image FILE` | Select an area, OCR it with Tesseract |

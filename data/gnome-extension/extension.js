@@ -2,11 +2,11 @@
 //
 // GNOME doesn't let apps see drags, move other windows or keep them on top,
 // so this extension does those few things for the Forgekit app:
-//   Clipboard  A top-bar icon whose menu lists clipboard history (from forgekitd);
+//   Top bar    The Forgekit logo. Its menu lists clipboard history (from forgekitd);
 //              `OpenClipboard()` drops it down from a keyboard shortcut. Picking an item
-//              copies it and pastes it into the window you were in.
-//   Bundle     A top-bar icon that drops the Bundle window down below it. Also, when you
-//              start dragging files, open Bundle (`forgekit-gtk --shelf --auto`) in your
+//              copies it and pastes it into the window you were in. A Bundle button in
+//              the menu drops the Bundle window down below the logo.
+//   Bundle     When you start dragging files, open Bundle (`forgekit-gtk --shelf --auto`) in your
 //              chosen corner, and close it if nothing gets dropped on it.
 //   Mosaic     Hold Shift while dragging a window to show zones; drop it into one. Drag it
 //              to the top middle of the screen for a picker with every layout instead.
@@ -97,9 +97,7 @@ export default class ForgekitExtension extends Extension {
         this._overlay = null;
         this._pollId = 0;
         this._flyout = null;
-        this._clip = null;
-        this._bundle = null;
-        this._bundleClicked = 0;
+        this._button = null;
         this._pending = [];
         this._cfg = this._readConfig();
         // Re-read the config whenever the app saves it.
@@ -107,11 +105,12 @@ export default class ForgekitExtension extends Extension {
         this._monitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
         this._monitorId = this._monitor.connect('changed', () => {
             this._cfg = this._readConfig();
-            this._syncClipboard();
-            this._syncBundle();
+            // A switch changed: rebuild the button so its menu matches.
+            this._button?.destroy();
+            this._button = null;
+            this._syncButton();
         });
-        this._syncClipboard();
-        this._syncBundle();
+        this._syncButton();
 
         this._signals = [
             [Main.xdndHandler, Main.xdndHandler.connect('drag-begin', () => this._onDragBegin())],
@@ -136,10 +135,8 @@ export default class ForgekitExtension extends Extension {
         this._monitor.disconnect(this._monitorId);
         this._monitor.cancel();
         this._monitor = null;
-        this._clip?.destroy();
-        this._clip = null;
-        this._bundle?.destroy();
-        this._bundle = null;
+        this._button?.destroy();
+        this._button = null;
         this._vkbd?.run_dispose();
         this._vkbd = null;
         this._stopPolling();
@@ -489,46 +486,26 @@ export default class ForgekitExtension extends Extension {
         this._flyout = null;
     }
 
-    // ---------------------------------------------------------------- Clipboard
+    // ---------------------------------------------------------------- Top-bar button
 
-    _syncClipboard() {
-        const want = this._config().clipboard.panel;
-        if (want && !this._clip) {
-            this._clip = new PanelMenu.Button(0.5, 'Forgekit Clipboard');
-            this._clip.add_child(new St.Icon({icon_name: 'edit-paste-symbolic', style_class: 'system-status-icon'}));
-            this._clip.menu.connect('open-state-changed', (_m, open) => {
+    /// One Forgekit logo in the top bar. Its menu is the clipboard history, with
+    /// a Bundle button at the top that drops the Bundle window down below the logo.
+    _syncButton() {
+        const cfg = this._config();
+        const want = cfg.clipboard.panel || cfg.bundle.panel;
+        if (want && !this._button) {
+            this._button = new PanelMenu.Button(0.5, 'Forgekit');
+            const icon = Gio.FileIcon.new(Gio.File.new_for_path(GLib.build_filenamev([this.path, 'forgekit-symbolic.svg'])));
+            this._button.add_child(new St.Icon({gicon: icon, style_class: 'system-status-icon'}));
+            this._button.menu.connect('open-state-changed', (_m, open) => {
                 if (open)
                     this._loadClips();
             });
-            Main.panel.addToStatusArea('forgekit-clipboard', this._clip);
-            this._renderClips([]);
-        } else if (!want && this._clip) {
-            this._clip.destroy();
-            this._clip = null;
-        }
-    }
-
-    // ---------------------------------------------------------------- Bundle top-bar icon
-
-    _syncBundle() {
-        const want = this._config().bundle.panel;
-        if (want && !this._bundle) {
-            // No menu: the icon opens (or closes) the Bundle window itself.
-            this._bundle = new PanelMenu.Button(0.5, 'Forgekit Bundle', true);
-            this._bundle.add_child(new St.Icon({icon_name: 'emblem-documents-symbolic', style_class: 'system-status-icon'}));
-            this._bundle.connect('button-press-event', () => {
-                this._toggleBundle();
-                return Clutter.EVENT_STOP;
-            });
-            this._bundle.connect('touch-event', (_a, event) => {
-                if (event.type() === Clutter.EventType.TOUCH_BEGIN)
-                    this._toggleBundle();
-                return Clutter.EVENT_STOP;
-            });
-            Main.panel.addToStatusArea('forgekit-bundle', this._bundle);
-        } else if (!want && this._bundle) {
-            this._bundle.destroy();
-            this._bundle = null;
+            Main.panel.addToStatusArea('forgekit', this._button);
+            this._renderMenu([]);
+        } else if (!want && this._button) {
+            this._button.destroy();
+            this._button = null;
         }
     }
 
@@ -536,16 +513,16 @@ export default class ForgekitExtension extends Extension {
         const app = this._config().app;
         if (!app)
             return;
-        this._bundleClicked = Date.now();
+        this._button?.menu.close();
         this._spawn([app, '--shelf-toggle']);
     }
 
     OpenClipboard() {
-        if (this._clip) {
-            this._clip.menu.open();
+        if (this._button && this._config().clipboard.panel) {
+            this._button.menu.open();
             return;
         }
-        // The top-bar icon is off: use the app's pop-up window instead.
+        // No top-bar menu: use the app's pop-up window instead.
         const app = this._config().app;
         if (app)
             this._spawn([app, '--clipboard']);
@@ -565,6 +542,10 @@ export default class ForgekitExtension extends Extension {
     }
 
     _loadClips() {
+        if (!this._config().clipboard.panel) {
+            this._renderMenu(null);
+            return;
+        }
         this._daemon('History', new GLib.Variant('(u)', [CLIP_ITEMS]), out => {
             let items = null;
             try {
@@ -572,22 +553,43 @@ export default class ForgekitExtension extends Extension {
             } catch (e) {
                 items = null;
             }
-            if (this._clip)
-                this._renderClips(items);
+            if (this._button)
+                this._renderMenu(items);
         });
     }
 
-    /// `items` null means the background service isn't answering.
-    _renderClips(items) {
-        const menu = this._clip.menu;
+    /// `items` null means there's no history to show (switched off, or the
+    /// background service isn't answering).
+    _renderMenu(items) {
+        const cfg = this._config();
+        const menu = this._button.menu;
         menu.removeAll();
-        const header = new PopupMenu.PopupMenuItem('Clipboard', {reactive: false, style_class: 'popup-subtitle-menu-item'});
-        header.label.style = 'font-weight: bold;';
+
+        // Header: "Clipboard", and the Bundle button on the right.
+        const header = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        header.add_child(new St.Label({
+            text: 'Clipboard', x_expand: true, y_align: Clutter.ActorAlign.CENTER, style: 'font-weight: bold;',
+        }));
+        if (cfg.bundle.panel) {
+            const box = new St.BoxLayout({style: 'spacing: 6px;'});
+            box.add_child(new St.Icon({icon_name: 'emblem-documents-symbolic', icon_size: 16}));
+            box.add_child(new St.Label({text: 'Bundle', y_align: Clutter.ActorAlign.CENTER}));
+            const bundle = new St.Button({
+                style_class: 'button', child: box, can_focus: true, accessible_name: 'Open Bundle',
+                style: 'padding: 4px 12px; border-radius: 99px; min-height: 0;',
+            });
+            bundle.connect('clicked', () => this._toggleBundle());
+            header.add_child(bundle);
+        }
         menu.addMenuItem(header);
 
+        if (!cfg.clipboard.panel) {
+            menu.addAction('Open Forgekit', () => this._openApp(''));
+            return;
+        }
         if (items === null) {
             menu.addMenuItem(new PopupMenu.PopupMenuItem('Clipboard history is off', {reactive: false}));
-            menu.addAction('Turn it on in Forgekit', () => this._openApp());
+            menu.addAction('Turn it on in Forgekit', () => this._openApp('clipstack'));
             return;
         }
         if (items.length === 0) {
@@ -611,7 +613,7 @@ export default class ForgekitExtension extends Extension {
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         if (items.length)
             menu.addAction('Clear history', () => this._daemon('Clear', null));
-        menu.addAction('Clipboard settings', () => this._openApp());
+        menu.addAction('Open Forgekit', () => this._openApp(''));
     }
 
     _clipItem(it) {
@@ -652,7 +654,7 @@ export default class ForgekitExtension extends Extension {
             () => this._daemon('Delete', new GLib.Variant('(x)', [it.id]), () => this._loadClips())));
 
         item.connect('activate', () => {
-            this._clip.menu.close();
+            this._button.menu.close();
             this._daemon('Copy', new GLib.Variant('(x)', [it.id]), out => {
                 if (out && this._config().clipboard.paste)
                     this._later(220, () => this._paste());
@@ -661,10 +663,11 @@ export default class ForgekitExtension extends Extension {
         return item;
     }
 
-    _openApp() {
+    /// Open the app, on a tool's page when `page` is given.
+    _openApp(page) {
         const app = this._config().app;
         if (app)
-            this._spawn([app, 'clipstack']);
+            this._spawn(page ? [app, page] : [app]);
     }
 
     /// Press Ctrl+V (Ctrl+Shift+V in terminals) in the focused window.
@@ -732,8 +735,9 @@ export default class ForgekitExtension extends Extension {
             const title = ours ? win.get_title() : null;
             if (title === SHELF_TITLE) {
                 // Opened from the top-bar icon: drop down below it.
-                if (this._bundle && Date.now() - this._bundleClicked < 4000)
-                    this._placeBelow(win, this._bundle);
+                // From the top bar (or a shortcut): below the logo. From a drag: the corner.
+                if (this._button && !this._shownByDrag)
+                    this._placeBelow(win, this._button);
                 else
                     this._placeShelf(win);
                 return;
