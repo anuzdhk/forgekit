@@ -81,24 +81,34 @@ pub fn install(app: Option<&str>) -> anyhow::Result<bool> {
     Ok(state() == State::Active)
 }
 
+/// Put the extension on GNOME's enabled list and take it off the disabled
+/// list (the Extensions app or a failed start can leave it there), so it
+/// starts at the next login.
 fn enable_on_next_login() {
-    let Ok(out) = Command::new("gsettings").args(["get", "org.gnome.shell", "enabled-extensions"]).output() else {
-        return;
+    let list = |key: &str| -> Vec<String> {
+        Command::new("gsettings")
+            .args(["get", "org.gnome.shell", key])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).split('\'').skip(1).step_by(2).map(str::to_string).collect())
+            .unwrap_or_default()
     };
-    let current = String::from_utf8_lossy(&out.stdout).to_string();
-    if current.contains(UUID) {
-        return;
+    let set = |key: &str, items: &[String]| {
+        let v = if items.is_empty() {
+            "@as []".to_string()
+        } else {
+            format!("[{}]", items.iter().map(|i| format!("'{i}'")).collect::<Vec<_>>().join(", "))
+        };
+        let _ = Command::new("gsettings").args(["set", "org.gnome.shell", key, &v]).status();
+    };
+    let mut enabled = list("enabled-extensions");
+    if !enabled.iter().any(|e| e == UUID) {
+        enabled.push(UUID.to_string());
+        set("enabled-extensions", &enabled);
     }
-    let list = current
-        .trim()
-        .trim_start_matches("@as")
-        .trim()
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .trim()
-        .to_string();
-    let new = if list.is_empty() { format!("['{UUID}']") } else { format!("[{list}, '{UUID}']") };
-    let _ = Command::new("gsettings").args(["set", "org.gnome.shell", "enabled-extensions", &new]).status();
+    let disabled = list("disabled-extensions");
+    if disabled.iter().any(|e| e == UUID) {
+        set("disabled-extensions", &disabled.into_iter().filter(|e| e != UUID).collect::<Vec<_>>());
+    }
 }
 
 pub fn remove() -> anyhow::Result<()> {
