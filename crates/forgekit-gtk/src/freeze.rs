@@ -94,6 +94,7 @@ pub fn freeze(app: &adw::Application, ready: impl FnOnce(Rc<Frozen>) -> Option<g
                     },
                     Err(e) => {
                         restore();
+                        eprintln!("forgekit: couldn't capture the screen: {e}");
                         forgekit_core::tools::notify("Couldn't capture the screen", &e);
                         let _ = &app;
                     }
